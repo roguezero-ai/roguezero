@@ -1,0 +1,17 @@
+{
+  "name": "@roguezero/example-protected-tool",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -b",
+    "demo": "node dist/demo.js",
+    "demo:stdio": "node dist/agent.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@roguezero/cli": "workspace:*",
+    "@roguezero/core": "workspace:*",
+    "@roguezero/middleware": "workspace:*"
+  }
+}

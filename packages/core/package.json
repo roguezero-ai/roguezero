@@ -1,0 +1,56 @@
+{
+  "name": "@roguezero/core",
+  "version": "0.1.0",
+  "description": "Verifiable agent identity and delegated authorization: DID create/resolve, JWT-VC issue/verify, request verification (replay + audience + revocation), policy, and audit.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bp7000/roguezero.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/bp7000/roguezero#readme",
+  "bugs": "https://github.com/bp7000/roguezero/issues",
+  "keywords": [
+    "agent",
+    "identity",
+    "authorization",
+    "verifiable-credentials",
+    "did",
+    "mcp",
+    "audit"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@noble/curves": "^1.7.0",
+    "did-jwt": "^8.0.0",
+    "did-jwt-vc": "^4.0.0",
+    "did-resolver": "^4.1.0",
+    "key-did-resolver": "^4.0.0",
+    "multiformats": "^13.3.1",
+    "web-did-resolver": "^2.0.27",
+    "zod": "^3.24.1"
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "name": "@roguezero/cli",
+  "version": "0.1.0",
+  "description": "RogueZero developer CLI: create identities, issue/verify credentials, revoke, and inspect audit logs.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "roguezero": "./dist/bin.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bp7000/roguezero.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://github.com/bp7000/roguezero#readme",
+  "bugs": "https://github.com/bp7000/roguezero/issues",
+  "keywords": [
+    "agent",
+    "identity",
+    "cli",
+    "verifiable-credentials",
+    "did"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@roguezero/core": "workspace:*"
+  }
+}

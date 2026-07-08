@@ -1,0 +1,51 @@
+name: Release
+
+# Publishes @roguezero/* to npm when a version tag is pushed (e.g. v0.1.0).
+# Prerequisites (one-time, founder actions):
+#   - Register the @roguezero scope on npm.
+#   - Add an automation NPM_TOKEN secret to the repo.
+# Provenance requires the id-token permission below.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.10.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Test
+        run: pnpm test
+
+      - name: Golden-path demo
+        run: node examples/protected-tool/dist/demo.js
+
+      - name: Publish packages
+        run: pnpm -r --filter "./packages/*" publish --access public --provenance --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -1,0 +1,6 @@
+**/dist/**
+**/coverage/**
+pnpm-lock.yaml
+
+# Prose docs are authored by hand; Prettier's Markdown opinions would churn them.
+**/*.md

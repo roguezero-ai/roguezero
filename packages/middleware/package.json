@@ -1,0 +1,72 @@
+{
+  "name": "@roguezero/middleware",
+  "version": "0.1.0",
+  "description": "MCP server wrapper + HTTP (Hono) middleware that verify a presentation, run policy, and audit every protected tool call — over @roguezero/core.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./mcp": {
+      "types": "./dist/mcp.d.ts",
+      "default": "./dist/mcp.js"
+    },
+    "./http": {
+      "types": "./dist/http.d.ts",
+      "default": "./dist/http.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bp7000/roguezero.git",
+    "directory": "packages/middleware"
+  },
+  "homepage": "https://github.com/bp7000/roguezero#readme",
+  "bugs": "https://github.com/bp7000/roguezero/issues",
+  "keywords": [
+    "agent",
+    "authorization",
+    "mcp",
+    "middleware",
+    "hono",
+    "verifiable-credentials"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@roguezero/core": "workspace:*",
+    "zod": "^3.25.76"
+  },
+  "peerDependencies": {
+    "@modelcontextprotocol/sdk": ">=1.29.0",
+    "hono": ">=4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@modelcontextprotocol/sdk": {
+      "optional": true
+    },
+    "hono": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "hono": "^4.12.28"
+  }
+}
