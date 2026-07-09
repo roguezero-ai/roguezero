@@ -18,5 +18,6 @@ import { createHttpGuard } from "@roguezero/middleware/http";
 import type { RogueZeroGuardOptions } from "@roguezero/middleware";
 ```
 
-Status: **pre-MVP scaffold matured** (D1/D2 done). See `examples/protected-tool` for a
-runnable end-to-end demo and `docs/CONCEPTS.md` for the plain-language overview.
+Status: **early beta**, pre-1.0. Both transports work and are exercised end-to-end
+(CI-enforced). See `examples/protected-tool` for a runnable demo and `docs/CONCEPTS.md`
+for the plain-language overview.

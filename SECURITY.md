@@ -6,7 +6,7 @@ disclosure.
 ## Reporting a vulnerability
 
 **Please do not open a public issue for security reports.** Instead, email
-**security@roguezero.com** (or contact@roguezero.com) with:
+**security@roguezero.ai** (or contact@roguezero.ai) with:
 
 - a description of the issue and its impact,
 - steps to reproduce (a minimal proof of concept if possible),

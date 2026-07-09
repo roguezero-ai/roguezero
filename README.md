@@ -1,6 +1,6 @@
 # RogueZero
 
-**The kill switch and flight recorder for AI agents.** Revoke any agent's access in one command — its next action is denied instantly — and prove every decision with an append-only audit trail.
+**The kill switch and flight recorder for AI agents.** Revoke any agent's access in one command — its next call is denied — and reconstruct every decision from an append-only audit trail.
 
 AI agents are being wired into real tools faster than teams can control them. Today the credential is a shared API key in a config file: when an agent misbehaves, the logs blame a service account, and the only way to shut it off is to rotate the key — which breaks everything else using it. RogueZero gives every agent a **scoped, expiring, revocable** permission, checks it on **every call**, and denies anything that doesn't match — with a decision log you can actually prove. Drop-in middleware for MCP and HTTP tools; runs entirely on your own machines.
 
@@ -24,7 +24,7 @@ create agent identity (did:key / did:web)
   → revoke → the same call is now denied
 ```
 
-**The moment that matters:** one `revoke` kills one agent's one permission — instantly, with the reason in the log. No key rotation. No collateral damage to anything else.
+**The moment that matters:** one `revoke` kills one agent's one permission — its next call is denied, with the reason in the log. No key rotation. No collateral damage to anything else.
 
 ## Quickstart
 
@@ -38,13 +38,16 @@ pnpm demo
 That's it. The demo stands up a real MCP client ↔ server protected by RogueZero and walks
 the whole story: an allowed call, a call the policy denies, then the same call **denied
 after revocation** — printing the audit trail at the end. (`pnpm demo:stdio` runs the same
-thing over a real spawned MCP server.)
+thing over a real spawned MCP server.) It writes the audit log and revocation list to a
+throwaway temp directory — nothing lands in your working tree.
 
 ### Try the CLI
 
-From a clone (a one-command `npx @roguezero/cli` lands with the npm release):
+The CLI runs from the built output, so build once first (`pnpm demo` above already does
+this). A one-command `npx @roguezero/cli` lands with the npm release.
 
 ```bash
+pnpm build                                           # produces packages/cli/dist
 alias rz="node packages/cli/dist/bin.js"
 
 rz create --out controller.key.json                 # the operator's identity

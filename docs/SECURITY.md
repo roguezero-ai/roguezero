@@ -1,6 +1,6 @@
 # Security Model v0
 
-This is security infrastructure: a crypto mistake here is worse than no product. This document lists the threats we defend against in the MVP, the controls that must exist, and — just as important — the gaps we consciously accept for a local-only demo. Before any public launch, the H-items in `BACKLOG.md` close and this document gets a full review.
+This is security infrastructure: a crypto mistake here is worse than no product. This document lists the threats we defend against in the MVP, the controls that must exist, and — just as important — the gaps we consciously accept for a local-only demo. Before any public launch, the hardening items in the checklist below close and this document gets a full review.
 
 > **See [THREAT-MODEL.md](THREAT-MODEL.md)** for the review of this model *against the actual code* — each threat mapped to the implemented control, the file it lives in, and the attack test that proves it, with honest ✅/🟡/⛔ status.
 
@@ -24,10 +24,10 @@ This is security infrastructure: a crypto mistake here is worse than no product.
 | T5 | **Expired authority** | Old Capability VC still honored | `exp` on every credential and presentation; bounded clock-skew tolerance |
 | T6 | **Revoked-but-cached** | Capability revoked, agent keeps calling | Revocation list checked on every verify; revocation cache TTL ≤ 60 s when fetched over HTTP |
 | T7 | **Scope escalation / confused deputy** | Agent with `reports:read` calls `delete_report` | Default-deny policy; tool + scope must match an explicit allow rule |
-| T8 | **Tampered payload** | Modified claims inside a signed JWT | Inherent in JWT signature verification; malformed-input fuzz tests (H5) |
+| T8 | **Tampered payload** | Modified claims inside a signed JWT | Inherent in JWT signature verification; malformed-input fuzz tests planned |
 | T9 | **Malformed/hostile input** | Oversized JWTs, header tricks, junk presentations | Zod validation at every boundary; size limits; typed parse errors → deny |
-| T10 | **Audit tampering** | Attacker erases evidence of an action | Append-only sink now; hash-chained entries before launch (H4) |
-| T11 | **Key compromise (agent)** | Agent private key leaked from disk/env | Short-lived capabilities bound the blast radius; revocation kills the rest; rotation flow is H3 |
+| T10 | **Audit tampering** | Attacker erases evidence of an action | Append-only sink now; hash-chained entries before launch |
+| T11 | **Key compromise (agent)** | Agent private key leaked from disk/env | Short-lived capabilities bound the blast radius; revocation kills the rest; rotation flow is planned |
 
 Every deny carries a typed reason naming the failed check (T1–T11 map to distinct error types). This is both a security property (auditability) and the product's developer experience.
 
@@ -45,7 +45,7 @@ Stated so nobody mistakes the demo for a production deployment:
 
 ## Pre-public-launch checklist
 
-From `BACKLOG.md`: H1 threat-model review (this doc, versus code, line by line) · H2 replay cache + clock-skew policy tested · H3 key rotation flow · H4 audit hash-chaining · H5 credential-parsing fuzz/property tests · H6 lockfile audit + pinned CI actions. Plus: a `SECURITY.md` at repo root with a disclosure contact, and secrets scanning in CI.
+Before a public launch, these hardening items close: threat-model review (this doc, versus code, line by line) · replay cache + clock-skew policy tested · key rotation flow · audit hash-chaining · credential-parsing fuzz/property tests · lockfile audit + pinned CI actions · secrets scanning in CI. (A root `SECURITY.md` with a disclosure contact is already in place.)
 
 ## Incident lens
 

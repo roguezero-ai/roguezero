@@ -31,7 +31,7 @@ Dependency rule: `core` imports no server framework, no MCP SDK, nothing from `m
 | **Verifier** | The full check sequence below; typed error per failure mode | No trust negotiation, no presentation-exchange protocol |
 | **Revocation** | JSON revocation list (local file or fetched URL); `revoke(credentialId)`; checked on every verify | No Bitstring Status List conformance yet (format kept swappable) |
 | **Policy** | Declarative rules file: agent × tool × scope → allow/deny, default deny; decision + reason | No Cedar/OPA, no conditions/context language, no admin API |
-| **Audit** | Zod-validated events → append-only JSONL sink | No dashboard, no SIEM export, no hash-chaining yet (H4) |
+| **Audit** | Zod-validated events → append-only JSONL sink | No dashboard, no SIEM export, no hash-chaining yet |
 | **Middleware** | MCP server wrapper + Hono middleware: extract presentation → run core pipeline → allow through / deny with protocol-appropriate error | No gateway/proxy deployment mode, no session management |
 | **CLI** | `create` · `issue` · `verify` · `revoke` · `inspect` | No interactive wizards, no config management |
 

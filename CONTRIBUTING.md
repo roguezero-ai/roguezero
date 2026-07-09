@@ -1,6 +1,6 @@
 # Contributing to RogueZero
 
-Thanks for your interest! RogueZero is [Apache-2.0](LICENSE) licensed; by contributing you
+Thanks for your interest. RogueZero is [Apache-2.0](LICENSE) licensed; by contributing you
 agree your contributions are licensed under the same terms.
 
 ## New here?

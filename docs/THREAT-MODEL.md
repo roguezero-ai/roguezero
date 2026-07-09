@@ -26,11 +26,11 @@ pipeline: `packages/core/src/verify.ts` (`verifyRequest`) composed by
 | T7 | **Scope escalation / confused deputy** — do more than granted | Two gates: capability must grant the tool (`authorize.ts`), then default-deny policy must allow it (`policy.ts`) | `authorize.test.ts` tool-not-granted; `policy.test.ts` default-deny + precedence | ✅ |
 | T8 | **Stolen bearer credential** — present a capability issued to *another* agent | Holder binding: the presenter must sign the VP with the agent key **and** be the credential subject; issuer must equal the agent's declared controller (`verify.ts` step 6) | `verify.test.ts` confused-deputy → `holder-mismatch`; controller-mismatch → `untrusted-issuer` | ✅ |
 | T9 | **Unauditable decision** — a decision that can't be recorded | Audit is load-bearing: if the sink throws, the call is **denied** (`authorize.ts` `auditThen`), never allowed-then-lost | `authorize.test.ts` failing sink → `audit-write-failed` | ✅ |
-| T10 | **Malformed / hostile input** — junk JWTs, bad subjects | Zod validation at every trust boundary (credential subjects, policy, audit); typed parse errors → deny | `credentials.test.ts` invalid subject (issue + verify side) → `malformed-credential` | 🟡 fuzz/size-limits pending (H5, H10) |
-| T11 | **`alg` downgrade / `alg:none`** — unsigned or weakened token | `did-jwt` requires a signature matching a resolved verification method; `none` is not accepted | — explicit regression test pending | 🟡 (H5) |
-| T12 | **Availability / challenge flood** — exhaust verifier memory | Nonce store bounded: throttled sweep + hard `maxEntries` cap (`nonce.ts`); remote revocation fetch has a 3s timeout | `nonce.test.ts` bounded-memory (sweep + cap) | 🟡 rate-limiting pending (H7) |
-| T13 | **Audit tampering** — erase evidence after the fact | Append-only JSONL sink; evidence carries hashes, never raw tokens/keys | append-only by construction | 🟡 hash-chaining deferred (H4) |
-| T14 | **Agent key compromise** — private key leaked from disk/env | Short-lived capabilities bound blast radius; revocation kills the rest; keystores written mode `0600`, never logged | `revocation.test.ts` (kill switch) | 🟡 rotation deferred (H3) |
+| T10 | **Malformed / hostile input** — junk JWTs, bad subjects | Zod validation at every trust boundary (credential subjects, policy, audit); typed parse errors → deny | `credentials.test.ts` invalid subject (issue + verify side) → `malformed-credential` | 🟡 fuzz/size-limits pending |
+| T11 | **`alg` downgrade / `alg:none`** — unsigned or weakened token | `did-jwt` requires a signature matching a resolved verification method; `none` is not accepted | — explicit regression test pending | 🟡 pending |
+| T12 | **Availability / challenge flood** — exhaust verifier memory | Nonce store bounded: throttled sweep + hard `maxEntries` cap (`nonce.ts`); remote revocation fetch has a 3s timeout | `nonce.test.ts` bounded-memory (sweep + cap) | 🟡 rate-limiting pending |
+| T13 | **Audit tampering** — erase evidence after the fact | Append-only JSONL sink; evidence carries hashes, never raw tokens/keys | append-only by construction | 🟡 hash-chaining deferred |
+| T14 | **Agent key compromise** — private key leaked from disk/env | Short-lived capabilities bound blast radius; revocation kills the rest; keystores written mode `0600`, never logged | `revocation.test.ts` (kill switch) | 🟡 rotation deferred |
 
 ## Consciously accepted gaps (MVP)
 
@@ -41,7 +41,7 @@ Unchanged from [SECURITY.md](SECURITY.md#consciously-accepted-gaps-mvp-local-onl
 - **No delegation chains** — one hop (controller → agent); sub-agent attenuation is deferred, and its threats with it.
 - **No multitenancy / tenant isolation** — single-operator assumption.
 - **`did:web` inherits DNS/HTTPS trust** — a domain hijack forges an org identity (the method's documented tradeoff).
-- **No rate limiting** on the unauthenticated challenge endpoint (H7); memory is bounded, availability under flood is not.
+- **No rate limiting** on the unauthenticated challenge endpoint; memory is bounded, availability under flood is not.
 
 ## What CI proves on every commit
 
@@ -53,10 +53,11 @@ control turns CI red.
 
 ## Before public launch
 
-The 🟡 items above map to `BACKLOG.md` H-items (H3 rotation, H4 hash-chaining, H5 fuzz/`alg:none`,
-H7 challenge rate-limiting, H10 input size limits, H11 401/403, H12 revoked-actor attribution).
-Public launch is gated on closing them plus a root `SECURITY.md` disclosure contact and CI
-secrets scanning (H6). None of these block a private design-partner pilot.
+The 🟡 items above are the pending hardening work: key rotation, audit hash-chaining,
+credential-parsing fuzz tests plus an explicit `alg:none` regression test, challenge-endpoint
+rate-limiting, input size limits, distinct 401/403 responses, and revoked-actor attribution.
+Public launch is gated on closing them, plus CI secrets scanning. (A root `SECURITY.md` with a
+disclosure contact is already in place.) None of these block a private design-partner pilot.
 
 ## Incident lens
 

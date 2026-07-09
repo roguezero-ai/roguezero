@@ -18,11 +18,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/bp7000/roguezero.git",
+    "url": "git+https://github.com/roguezero-ai/roguezero.git",
     "directory": "packages/core"
   },
-  "homepage": "https://github.com/bp7000/roguezero#readme",
-  "bugs": "https://github.com/bp7000/roguezero/issues",
+  "homepage": "https://github.com/roguezero-ai/roguezero#readme",
+  "bugs": "https://github.com/roguezero-ai/roguezero/issues",
   "keywords": [
     "agent",
     "identity",
