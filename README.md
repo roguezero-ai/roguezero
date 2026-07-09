@@ -28,7 +28,19 @@ create agent identity (did:key / did:web)
 
 ## Quickstart
 
-Requires Node ≥ 20 and [pnpm](https://pnpm.io) (`corepack enable` provides it).
+Nothing to clone, nothing to build — give an agent a verifiable identity in one command:
+
+```bash
+npx @roguezero/cli create --out agent.json
+```
+
+Requires Node ≥ 20. From there, `issue` a capability and `verify` it (see below).
+
+### Run the full demo
+
+The end-to-end demo needs a checkout, Node ≥ 22.13, and [pnpm](https://pnpm.io)
+(`corepack enable` provides it). Node 22.13 is a pnpm 11 requirement; the published
+packages themselves run on Node ≥ 20.
 
 ```bash
 pnpm install
@@ -43,13 +55,16 @@ throwaway temp directory — nothing lands in your working tree.
 
 ### Try the CLI
 
-The CLI runs from the built output, so build once first (`pnpm demo` above already does
-this). A one-command `npx @roguezero/cli` lands with the npm release.
+Use the published CLI directly — no checkout required:
 
 ```bash
-pnpm build                                           # produces packages/cli/dist
-alias rz="node packages/cli/dist/bin.js"
+alias rz="npx @roguezero/cli"
+```
 
+Or, from a clone, run it from the built output (`pnpm demo` above already builds it):
+`alias rz="node packages/cli/dist/bin.js"`.
+
+```bash
 rz create --out controller.key.json                 # the operator's identity
 rz create --out agent.key.json                       # the agent's identity
 AGENT=$(rz create) ; # or read the DID from a keystore
