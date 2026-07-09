@@ -22,7 +22,9 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # pnpm 11 requires Node >= 22.13 (it imports node:sqlite). Node 20 makes
+          # setup-node's `cache: pnpm` probe crash before any step runs.
+          node-version: 22.14.0
           cache: pnpm
 
       - name: Install dependencies
