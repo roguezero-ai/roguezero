@@ -24,6 +24,12 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    # Gated on the `release` environment, which requires a human reviewer.
+    # This tag trigger runs at whatever commit the tag points to, so branch
+    # protection on main does not constrain it; the environment does. GitHub
+    # withholds the OIDC token until the run is approved, and npm's trust
+    # config pins this exact environment — so no approval, no publish.
+    environment: release
     steps:
       - uses: actions/checkout@v4
 
