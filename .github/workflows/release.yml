@@ -41,15 +41,32 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 22.14.0
+          # pnpm 11 needs >= 22.13 (node:sqlite); the bundled npm must be
+          # >= 11.5.1 for OIDC trusted publishing. 24.x satisfies both, so we
+          # use the npm that ships with Node rather than installing npm@latest
+          # — that floats ahead of the pinned Node and breaks the run.
+          node-version: 24.16.0
           cache: pnpm
           registry-url: https://registry.npmjs.org
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Update npm for OIDC trusted publishing
-        run: npm install -g npm@latest
+      - name: Verify npm supports OIDC trusted publishing
+        run: |
+          V="$(npm --version)"
+          echo "npm $V"
+          node -e '
+            const need = [11, 5, 1];
+            const got = process.argv[1].split(".").map(Number);
+            for (let i = 0; i < 3; i++) {
+              if (got[i] > need[i]) process.exit(0);
+              if (got[i] < need[i]) {
+                console.error(`npm ${process.argv[1]} is too old for OIDC trusted publishing (need >= ${need.join(".")})`);
+                process.exit(1);
+              }
+            }
+          ' "$V"
 
       - name: Build
         run: pnpm build
