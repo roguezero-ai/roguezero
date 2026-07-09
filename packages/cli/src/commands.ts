@@ -178,8 +178,21 @@ interface AuditLine {
 
 /** Pretty-print an append-only JSONL audit log, one decision per line. */
 export async function inspectAuditCommand(opts: { auditPath: string }): Promise<string> {
-  const content = await readFile(opts.auditPath, "utf8");
+  let content: string;
+  try {
+    content = await readFile(opts.auditPath, "utf8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      throw new Error(
+        `No audit log at ${opts.auditPath}. Audit events are written by a protected tool ` +
+          `when it handles a call — run \`pnpm demo\` (or point a middleware guard at this ` +
+          `path) to generate one, then inspect it.`,
+      );
+    }
+    throw err;
+  }
   const lines = content.split("\n").filter((l) => l.trim());
+  if (lines.length === 0) return `(no audit events in ${opts.auditPath})`;
   return lines
     .map((line) => {
       const e = JSON.parse(line) as AuditLine;

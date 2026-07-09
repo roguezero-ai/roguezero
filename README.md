@@ -62,11 +62,13 @@ rz issue capability \
   --out capability.jwt
 
 rz verify --jwt capability.jwt                        # signature · issuer · expiry · shape
+rz inspect --jwt capability.jwt                       # look inside the credential
 rz revoke --list revocations.json --jwt capability.jwt
-rz inspect --audit audit.jsonl                        # pretty-print a decision log
 ```
 
-Everything runs locally — no accounts, no hosted services, no blockchain.
+The **audit log** is written by a protected tool at request time, not by these CLI commands —
+`pnpm demo` prints a full trail, and `rz inspect --audit <file>` pretty-prints any log a
+guard has written. Everything runs locally — no accounts, no hosted services, no blockchain.
 
 ## Layout
 
