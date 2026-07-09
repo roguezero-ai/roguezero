@@ -1,10 +1,16 @@
 name: Release
 
 # Publishes @roguezero/* to npm when a version tag is pushed (e.g. v0.1.0).
-# Prerequisites (one-time, founder actions):
-#   - Register the @roguezero scope on npm.
-#   - Add an automation NPM_TOKEN secret to the repo.
-# Provenance requires the id-token permission below.
+#
+# Authentication is npm trusted publishing (OIDC) — there is no NPM_TOKEN
+# secret, by design. The `id-token: write` permission below is what mints the
+# short-lived credential, and it is also what lets npm attest build provenance.
+#
+# One-time setup, per package, before the first tag:
+#   npm trust github @roguezero/<pkg> --file release.yml \
+#     --repo roguezero-ai/roguezero --allow-publish
+# (npm only accepts a trusted publisher on a package that already exists, so
+# each name is bootstrapped once by hand.)
 
 on:
   push:
@@ -29,12 +35,15 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22.14.0
           cache: pnpm
           registry-url: https://registry.npmjs.org
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Update npm for OIDC trusted publishing
+        run: npm install -g npm@latest
 
       - name: Build
         run: pnpm build
@@ -47,5 +56,3 @@ jobs:
 
       - name: Publish packages
         run: pnpm -r --filter "./packages/*" publish --access public --provenance --no-git-checks
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
