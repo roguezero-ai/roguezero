@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   createCommand,
+  credentialExpiryFromJwt,
   credentialIdFromJwt,
   inspectAuditCommand,
   inspectJwtCommand,
@@ -77,13 +78,48 @@ describe("CLI golden path (create → issue → verify → revoke)", () => {
     expect(capResult.type).toBe("AgentCapability");
     expect(capResult.subject.id).toBe(agent.did);
 
-    // revoke the capability by file; the id lands in the list
+    // revoke the capability by file; the id lands in the list, along with the credential's own
+    // expiry so a publisher can later prune the entry rather than carry it forever.
     const listPath = await tmp("revocations.json");
     const capJwt = (await readFile(capPath, "utf8")).trim();
     const { revokedId } = await revokeCommand({ listPath, jwtPath: capPath });
     expect(revokedId).toBe(credentialIdFromJwt(capJwt));
-    const list = JSON.parse(await readFile(listPath, "utf8")) as { revoked: string[] };
-    expect(list.revoked).toContain(revokedId);
+    const list = JSON.parse(await readFile(listPath, "utf8")) as {
+      revoked: Array<string | { id: string; expiresAt?: number }>;
+    };
+    const entries = list.revoked.map((r) => (typeof r === "string" ? { id: r } : r));
+    expect(entries.map((e) => e.id)).toContain(revokedId);
+    expect(entries[0]?.expiresAt).toBe(credentialExpiryFromJwt(capJwt));
+  });
+});
+
+describe("verify + revocation", () => {
+  it("reports revoked=undefined when no list is given, and true once revoked", async () => {
+    const controllerPath = await tmp("controller.key.json");
+    const controller = await createCommand({ outPath: controllerPath });
+    const capPath = await tmp("cap.jwt");
+    await issueCapabilityCommand({
+      issuerPath: controllerPath,
+      subjectDid: controller.did,
+      audience: "mcp://x",
+      tools: [parseToolSpec("t=a:read")],
+      outPath: capPath,
+    });
+    const listPath = await tmp("revocations.json");
+    await writeFile(listPath, JSON.stringify({ revoked: [] }), "utf8");
+
+    // No list supplied: the check did not run, and we must not imply that it did.
+    expect((await verifyCommand({ jwtPath: capPath })).revoked).toBeUndefined();
+    // List supplied, not yet revoked.
+    expect((await verifyCommand({ jwtPath: capPath, revocationsPath: listPath })).revoked).toBe(
+      false,
+    );
+
+    // After revocation, a signature-valid credential must not be reported as simply OK.
+    await revokeCommand({ listPath, jwtPath: capPath });
+    expect((await verifyCommand({ jwtPath: capPath, revocationsPath: listPath })).revoked).toBe(
+      true,
+    );
   });
 });
 

@@ -51,4 +51,32 @@ describe("explainDenial", () => {
     expect(e.summary.length).toBeGreaterThan(0);
     expect(e.fix.length).toBeGreaterThan(0);
   });
+
+  // The fallback exists so an unknown reason never crashes — but a reason we *ship* must never
+  // reach it. Adding a VerificationFailureReason without an explanation is a product bug.
+  it("has a specific explanation for every shipped failure reason", () => {
+    const reasons: VerificationFailureReason[] = [
+      "bad-signature",
+      "untrusted-issuer",
+      "expired",
+      "not-yet-valid",
+      "audience-mismatch",
+      "nonce-invalid",
+      "nonce-replayed",
+      "revoked",
+      "revocation-list-unavailable",
+      "revocation-list-stale",
+      "revocation-list-untrusted",
+      "revocation-list-invalid",
+      "revocation-list-rollback",
+      "malformed-credential",
+      "unresolvable-did",
+      "holder-mismatch",
+      "policy-deny",
+    ];
+    const generic = explainDenial("definitely-not-a-real-reason").summary;
+    for (const reason of reasons) {
+      expect(explainDenial(reason).summary, `${reason} has no explanation`).not.toBe(generic);
+    }
+  });
 });

@@ -17,7 +17,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "demo": "tsc -b && node examples/protected-tool/dist/demo.js",
-    "demo:stdio": "tsc -b && node examples/protected-tool/dist/agent.js"
+    "demo:stdio": "tsc -b && node examples/protected-tool/dist/agent.js",
+    "demo:connect": "tsc -b && node examples/protected-tool/dist/demo-connect.js"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",

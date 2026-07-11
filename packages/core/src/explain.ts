@@ -53,6 +53,26 @@ const EXPLANATIONS: Record<string, { summary: string; fix: string }> = {
     summary: "A presented credential has been revoked.",
     fix: "Issue a new capability; a revoked one is permanently dead.",
   },
+  "revocation-list-unavailable": {
+    summary: "The revocation list couldn't be read, so the call was denied rather than allowed.",
+    fix: "Check that the revocation source (file path or URL) is reachable. Verification fails closed: an unreadable revocation list is never treated as 'nothing is revoked'.",
+  },
+  "revocation-list-stale": {
+    summary: "The revocation list is past its freshness window, so it can no longer be trusted.",
+    fix: "Re-publish (re-sign) the list — publishers must re-sign on a schedule even when nothing changed. If you host it yourself, shorten the publish interval or lengthen the list's validity window.",
+  },
+  "revocation-list-untrusted": {
+    summary: "The revocation list is signed by a DID that isn't on this server's trusted list.",
+    fix: "Sign the list with a controller in trustedIssuers, or add its DID to trustedIssuers. A list signed by anyone else could hide a revocation.",
+  },
+  "revocation-list-invalid": {
+    summary: "The revocation list's signature or format didn't verify.",
+    fix: "Publish a list signed with `signRevocationList`. Remote lists must be signed — transport security alone would make whoever hosts the list able to forge it.",
+  },
+  "revocation-list-rollback": {
+    summary: "The revocation list went backwards: an older list was served than one already seen.",
+    fix: "Treat this as an attack or a broken cache/mirror — an old-but-still-valid list is how an attacker resurrects a revoked credential. Check who serves the list.",
+  },
   "malformed-credential": {
     summary: "A credential or presentation couldn't be parsed or failed validation.",
     fix: "Send a valid JWT credential of the expected type (AgentProfile + AgentCapability) with a well-formed subject.",

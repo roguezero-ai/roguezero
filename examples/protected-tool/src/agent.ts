@@ -84,11 +84,12 @@ async function main(): Promise<void> {
     configPath,
     JSON.stringify(
       {
+        version: 1,
         audience: AUDIENCE,
         trustedIssuers: [controller.did],
-        policyPath,
-        auditPath,
-        revocationPath,
+        policy: { path: policyPath },
+        audit: { sink: "file", path: auditPath },
+        revocation: { source: "file", path: revocationPath },
       },
       null,
       2,

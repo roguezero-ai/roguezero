@@ -40,7 +40,11 @@ export interface AuthorizeToolCallOptions {
   nonceStore: NonceStore;
   policy: Policy;
   auditSink: AuditSink;
-  isRevoked?: RevocationChecker;
+  /**
+   * Required, not optional. Grants are long-lived because this runs on every call and fails
+   * closed; a guard without it has no kill switch. Pass `neverRevoked` to say so on purpose.
+   */
+  isRevoked: RevocationChecker;
   /** Correlation id linking challenge → call → decision; generated if omitted. */
   correlationId?: string;
 }

@@ -6,7 +6,9 @@
   "scripts": {
     "build": "tsc -b",
     "demo": "node dist/demo.js",
-    "demo:stdio": "node dist/agent.js"
+    "demo:stdio": "node dist/agent.js",
+    "demo:connect": "node dist/demo-connect.js",
+    "demo:unattended": "node dist/demo-unattended.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
