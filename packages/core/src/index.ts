@@ -5,6 +5,7 @@
  * from this file is internal. Keeping this surface small is load-bearing (ADR 0001).
  */
 
+export * from "./config.js";
 export * from "./constants.js";
 export * from "./types.js";
 export * from "./errors.js";

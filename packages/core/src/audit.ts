@@ -75,6 +75,45 @@ export function createJsonlAuditSink(path: string): AuditSink {
   };
 }
 
+/** Default timeout for shipping an audit event to a remote sink (ms). */
+export const DEFAULT_AUDIT_TIMEOUT_MS = 3000;
+
+export interface HttpAuditSinkOptions {
+  url: string;
+  timeoutMs?: number;
+  /** Sent as the `Authorization` header. Read from the environment, never from a config file. */
+  authorization?: string;
+}
+
+/**
+ * Ship each decision to an HTTP endpoint (audit retention, a SIEM, a collector).
+ *
+ * One request per decision, and a failed request throws — which the pipeline turns into an
+ * `audit-write-failed` deny. That is deliberate: batching would mean buffering, and a buffered
+ * event is an *allow that was never audited*. Correctness over throughput here; a deployment
+ * that needs throughput puts a local collector on the box and ships from there.
+ */
+export function createHttpAuditSink(options: HttpAuditSinkOptions): AuditSink {
+  const timeoutMs = options.timeoutMs ?? DEFAULT_AUDIT_TIMEOUT_MS;
+  return {
+    async write(event) {
+      const valid = auditEventSchema.parse(event);
+      const response = await fetch(options.url, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(options.authorization ? { authorization: options.authorization } : {}),
+        },
+        body: JSON.stringify(valid),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (!response.ok) {
+        throw new Error(`audit sink rejected event: ${response.status} ${response.statusText}`);
+      }
+    },
+  };
+}
+
 /** In-memory sink for tests and single-process inspection. */
 export function createInMemoryAuditSink(): AuditSink & { events: AuditEvent[] } {
   const events: AuditEvent[] = [];

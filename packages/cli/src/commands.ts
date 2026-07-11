@@ -13,6 +13,7 @@ import {
   createResolver,
   issueAgentCapabilityCredential,
   issueAgentProfileCredential,
+  loadRevocationListFromFile,
   revokeCredential,
   verifyAgentCapabilityCredential,
   verifyAgentProfileCredential,
@@ -22,20 +23,31 @@ import {
   type Did,
   type ToolGrant,
 } from "@roguezero/core";
+import { loadBundle } from "./bundle.js";
 import { createKeystore, loadSigner, saveKeystore, type Keystore } from "./keystore.js";
 
 async function readJwt(path: string): Promise<string> {
   return (await readFile(path, "utf8")).trim();
 }
 
+function decodeJwtPayload(jwt: string): { jti?: string; exp?: number } {
+  const segment = jwt.split(".")[1] ?? "";
+  return JSON.parse(Buffer.from(segment, "base64url").toString("utf8")) as {
+    jti?: string;
+    exp?: number;
+  };
+}
+
 /** Read a JWT VC's id (jti) from its payload without a JWT dependency. */
 export function credentialIdFromJwt(jwt: string): string {
-  const segment = jwt.split(".")[1] ?? "";
-  const payload = JSON.parse(Buffer.from(segment, "base64url").toString("utf8")) as {
-    jti?: string;
-  };
-  if (!payload.jti) throw new Error("credential has no id (jti)");
-  return payload.jti;
+  const jti = decodeJwtPayload(jwt).jti;
+  if (!jti) throw new Error("credential has no id (jti)");
+  return jti;
+}
+
+/** Read a JWT VC's own expiry (unix seconds), if it has one. */
+export function credentialExpiryFromJwt(jwt: string): number | undefined {
+  return decodeJwtPayload(jwt).exp;
 }
 
 // --- create ----------------------------------------------------------------------
@@ -114,12 +126,29 @@ export interface VerifyResult {
   issuer: Did;
   subject: AgentProfileSubject | AgentCapabilitySubject;
   expiresAt?: number;
+  /** `undefined` when no revocation list was supplied — the check did not run. */
+  revoked?: boolean;
 }
 
-export async function verifyCommand(opts: { jwtPath: string }): Promise<VerifyResult> {
+/**
+ * Verify a credential offline. Revocation is only checked when a list is supplied: the guard
+ * always checks it at request time, but `verify` has no way to guess where the list lives, and
+ * silently reporting `OK` for a revoked credential would be a lie. When no list is given the
+ * caller is told the check was skipped rather than left to assume it passed.
+ */
+export async function verifyCommand(opts: {
+  jwtPath: string;
+  revocationsPath?: string;
+}): Promise<VerifyResult> {
   const jwt = await readJwt(opts.jwtPath);
   const resolver = createResolver();
   const env = await verifyCredentialEnvelope(jwt, resolver);
+
+  const checkRevoked = async (): Promise<boolean | undefined> => {
+    if (!opts.revocationsPath) return undefined;
+    const revoked = await loadRevocationListFromFile(opts.revocationsPath);
+    return revoked.has(credentialIdFromJwt(jwt));
+  };
 
   if (env.types.includes(CREDENTIAL_TYPES.agentProfile)) {
     const v = await verifyAgentProfileCredential(jwt, resolver);
@@ -128,6 +157,7 @@ export async function verifyCommand(opts: { jwtPath: string }): Promise<VerifyRe
       issuer: v.issuer,
       subject: v.subject,
       expiresAt: v.expiresAt,
+      revoked: await checkRevoked(),
     };
   }
   if (env.types.includes(CREDENTIAL_TYPES.agentCapability)) {
@@ -137,6 +167,7 @@ export async function verifyCommand(opts: { jwtPath: string }): Promise<VerifyRe
       issuer: v.issuer,
       subject: v.subject,
       expiresAt: v.expiresAt,
+      revoked: await checkRevoked(),
     };
   }
   throw new Error(`unsupported credential type: [${env.types.join(", ")}]`);
@@ -148,11 +179,26 @@ export async function revokeCommand(opts: {
   listPath: string;
   id?: string;
   jwtPath?: string;
+  /** An agent bundle; its `capabilityId` is revoked. The kill switch, by name. */
+  bundlePath?: string;
 }): Promise<{ revokedId: string }> {
-  const id =
-    opts.id ?? (opts.jwtPath ? credentialIdFromJwt(await readJwt(opts.jwtPath)) : undefined);
-  if (!id) throw new Error("revoke requires --id or --jwt");
-  await revokeCredential(opts.listPath, id);
+  let id = opts.id;
+  // The credential's own expiry, recorded so a publisher can prune the entry once the
+  // credential could no longer be presented anyway. Only known when we can see the credential.
+  let expiresAt: number | undefined;
+
+  if (!id && opts.jwtPath) {
+    const jwt = await readJwt(opts.jwtPath);
+    id = credentialIdFromJwt(jwt);
+    expiresAt = credentialExpiryFromJwt(jwt);
+  }
+  if (!id && opts.bundlePath) {
+    const bundle = await loadBundle(opts.bundlePath);
+    id = bundle.capabilityId;
+    expiresAt = credentialExpiryFromJwt(bundle.capabilityVc);
+  }
+  if (!id) throw new Error("revoke requires --agent, --jwt, or --id");
+  await revokeCredential(opts.listPath, id, { expiresAt });
   return { revokedId: id };
 }
 
@@ -165,6 +211,50 @@ export async function inspectJwtCommand(opts: { jwtPath: string }): Promise<stri
   const decode = (seg: string | undefined) =>
     JSON.parse(Buffer.from(seg ?? "", "base64url").toString("utf8"));
   return JSON.stringify({ header: decode(header), payload: decode(payload) }, null, 2);
+}
+
+/**
+ * Decode (without verifying) a signed revocation list, and say plainly whether a verifier would
+ * still accept it. Staleness is the failure operators will actually hit — the publisher stopped
+ * re-signing — so lead with it.
+ */
+export async function inspectRevocationsCommand(opts: { path: string }): Promise<string> {
+  const jwt = (await readFile(opts.path, "utf8")).trim();
+  const segment = jwt.split(".")[1] ?? "";
+  const payload = JSON.parse(Buffer.from(segment, "base64url").toString("utf8")) as {
+    iss?: string;
+    seq?: number;
+    iat?: number;
+    exp?: number;
+    revoked?: Array<{ id: string; expiresAt?: number }>;
+  };
+  if (payload.exp === undefined || payload.seq === undefined) {
+    throw new Error(`${opts.path} is not a signed RogueZero revocation list.`);
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  const remaining = payload.exp - now;
+  const freshness =
+    remaining > 0
+      ? `fresh for another ${remaining}s`
+      : `STALE by ${-remaining}s — verifiers are denying every call; re-publish`;
+
+  const entries = payload.revoked ?? [];
+  const lines = [
+    `signed revocation list  ${opts.path}`,
+    `  issuer:  ${payload.iss ?? "(none)"}`,
+    `  seq:     ${payload.seq}`,
+    `  issued:  ${payload.iat ? new Date(payload.iat * 1000).toISOString() : "(none)"}`,
+    `  expires: ${new Date(payload.exp * 1000).toISOString()}  (${freshness})`,
+    `  revoked: ${entries.length} credential${entries.length === 1 ? "" : "s"}`,
+  ];
+  for (const entry of entries) {
+    const expiry = entry.expiresAt
+      ? ` (credential expires ${new Date(entry.expiresAt * 1000).toISOString()})`
+      : "";
+    lines.push(`    ${entry.id}${expiry}`);
+  }
+  return lines.join("\n");
 }
 
 interface AuditLine {

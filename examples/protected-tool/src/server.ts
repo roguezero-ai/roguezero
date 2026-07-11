@@ -8,40 +8,18 @@
  * code. Everything human-facing goes to stderr — stdout is the MCP channel.
  */
 
-import { readFile } from "node:fs/promises";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import {
-  createFileRevocationChecker,
-  createInMemoryNonceStore,
-  createJsonlAuditSink,
-  createResolver,
-  loadPolicyFromFile,
-} from "@roguezero/core";
+import { guardOptionsFromConfig } from "@roguezero/middleware";
 import { createMcpGuard } from "@roguezero/middleware/mcp";
-
-interface ServerConfig {
-  audience: string;
-  trustedIssuers: string[];
-  policyPath: string;
-  auditPath: string;
-  revocationPath: string;
-}
 
 async function main(): Promise<void> {
   const configPath = process.env.RZ_CONFIG;
-  if (!configPath) throw new Error("RZ_CONFIG (path to server config JSON) is required");
-  const config = JSON.parse(await readFile(configPath, "utf8")) as ServerConfig;
+  if (!configPath) throw new Error("RZ_CONFIG (path to roguezero.config.json) is required");
 
-  const guard = createMcpGuard({
-    audience: config.audience,
-    resolver: createResolver(),
-    trustedIssuers: config.trustedIssuers,
-    nonceStore: createInMemoryNonceStore(),
-    policy: await loadPolicyFromFile(config.policyPath),
-    auditSink: createJsonlAuditSink(config.auditPath),
-    isRevoked: createFileRevocationChecker(config.revocationPath),
-  });
+  // One call: audience, trusted issuers, policy, audit, and revocation all come from the
+  // config file `roguezero init` wrote.
+  const guard = createMcpGuard(await guardOptionsFromConfig(configPath));
 
   const server = new McpServer({ name: "reports", version: "1.0.0" });
 

@@ -22,7 +22,11 @@ export interface RogueZeroGuardOptions {
   nonceStore: NonceStore;
   policy: Policy;
   auditSink: AuditSink;
-  isRevoked?: RevocationChecker;
+  /**
+   * Required. A guard without a revocation source has no kill switch, and that must be a
+   * decision someone typed — pass `neverRevoked` from `@roguezero/core` to opt out explicitly.
+   */
+  isRevoked: RevocationChecker;
 }
 
 /** What a protected handler receives once a call is authorized. */

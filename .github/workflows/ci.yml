@@ -47,3 +47,19 @@ jobs:
 
       - name: Golden-path demo (real stdio transport)
         run: node examples/protected-tool/dist/agent.js
+
+      # The plug-and-play claim: a stock MCP client, no RogueZero code, through the proxy.
+      # If this breaks, the pitch is false, so it fails the build.
+      - name: Golden-path demo (unmodified client via `roguezero connect`)
+        run: node examples/protected-tool/dist/demo-connect.js
+
+      # The "identity for agents that run without you" claim: an unattended agent renewed live
+      # by the scheduler, then revoked and NOT resurrected. If this breaks, the positioning is
+      # false, so it fails the build.
+      - name: Unattended-agent demo (renew live → revoke → no resurrection)
+        run: node examples/protected-tool/dist/demo-unattended.js
+
+      # The kill switch has to survive leaving one machine: publish a signed list, then prove a
+      # verifier honours it and refuses a replayed older one.
+      - name: Signed revocation list round-trip
+        run: pnpm vitest run packages/cli/src/publish.test.ts

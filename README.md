@@ -15,26 +15,59 @@ AI agents are being wired into real tools faster than teams can control them. To
 Put RogueZero in front of any tool. Every call runs one fail-closed sequence before your tool executes:
 
 ```
-create agent identity (did:key / did:web)
-  → issue AgentProfile + Capability credentials
-  → agent calls a protected MCP/HTTP tool with a verifiable presentation
+roguezero onboard   → agent identity + AgentProfile + Capability credentials, one bundle file
+roguezero connect   → proxies the agent's MCP calls, presenting its credentials on each one
   → middleware verifies: signature · issuer trust · expiry · audience/nonce · revocation
   → policy allow/deny
   → audit event (actor, subject, tool, decision, evidence, timestamp)
-  → revoke → the same call is now denied
+roguezero revoke    → the same call is now denied
 ```
+
+Your agent talks plain MCP to `connect` and never learns any of this happened. Your tool wraps
+its handlers with one `guard.protect(...)` call. Nobody writes crypto.
 
 **The moment that matters:** one `revoke` kills one agent's one permission — its next call is denied, with the reason in the log. No key rotation. No collateral damage to anything else.
 
 ## Quickstart
 
-Nothing to clone, nothing to build — give an agent a verifiable identity in one command:
+Nothing to clone, nothing to build, and **no changes to your agent**. Three commands:
 
 ```bash
-npx @roguezero/cli create --out agent.json
+npx @roguezero/cli init --audience "mcp://reports.local"
+npx @roguezero/cli onboard reporter --tool read_report=reports:read
+npx @roguezero/cli connect --agent reporter -- node ./your-mcp-server.js
 ```
 
-Requires Node ≥ 20. From there, `issue` a capability and `verify` it (see below).
+`init` writes a config, a controller identity, and a deny-everything policy. `onboard` mints
+the agent, issues its credentials, and grants it exactly one tool — writing `reporter.rz.json`,
+a single file the agent mounts, like a kubeconfig. `connect` is a proxy: it speaks plain MCP to
+your agent and proves the agent's identity to the tool on every call.
+
+Requires Node ≥ 20. Then, whenever you want it to stop:
+
+```bash
+npx @roguezero/cli revoke --agent reporter    # the next call is denied
+```
+
+### Plug it into a real MCP client
+
+Point Cursor, VS Code, or any MCP client at `connect` instead of your server. Nothing
+else changes — no SDK, no code, no presentation logic:
+
+```jsonc
+{
+  "mcpServers": {
+    "reports": {
+      "command": "npx",
+      "args": ["@roguezero/cli", "connect", "--agent", "reporter",
+               "--", "node", "/path/to/your-mcp-server.js"]
+    }
+  }
+}
+```
+
+The agent never sees a credential, a nonce, or a DID. It calls `read_report` and gets a report —
+or a denial that says exactly which check failed and how to fix it.
 
 ### Run the full demo
 
@@ -53,6 +86,11 @@ after revocation** — printing the audit trail at the end. (`pnpm demo:stdio` r
 thing over a real spawned MCP server.) It writes the audit log and revocation list to a
 throwaway temp directory — nothing lands in your working tree.
 
+**`pnpm demo:connect` is the one to watch.** It drives a stock MCP client — containing no
+RogueZero code at all — through `roguezero connect`: the call is allowed, a tool that was never
+granted is denied, then the agent is revoked mid-session and the same call dies. All three
+demos run in CI, so if any of this stops being true, the build goes red.
+
 ### Try the CLI
 
 Use the published CLI directly — no checkout required:
@@ -65,9 +103,8 @@ Or, from a clone, run it from the built output (`pnpm demo` above already builds
 `alias rz="node packages/cli/dist/bin.js"`.
 
 ```bash
-rz create --out controller.key.json                 # the operator's identity
-rz create --out agent.key.json                       # the agent's identity
-AGENT=$(rz create) ; # or read the DID from a keystore
+CONTROLLER=$(rz create --out controller.key.json)     # the operator's identity
+AGENT=$(rz create --out agent.key.json)               # the agent's identity
 
 rz issue capability \
   --issuer controller.key.json \
@@ -77,9 +114,13 @@ rz issue capability \
   --out capability.jwt
 
 rz verify --jwt capability.jwt                        # signature · issuer · expiry · shape
+rz verify --jwt capability.jwt --revocations revocations.json   # …and revocation status
 rz inspect --jwt capability.jwt                       # look inside the credential
 rz revoke --list revocations.json --jwt capability.jwt
 ```
+
+Each command prints only its result on stdout (`create` prints the DID, nothing else), so
+`$(...)` capture works and no DID is ever copied by hand.
 
 The **audit log** is written by a protected tool at request time, not by these CLI commands —
 `pnpm demo` prints a full trail, and `rz inspect --audit <file>` pretty-prints any log a
@@ -91,8 +132,8 @@ guard has written. Everything runs locally — no accounts, no hosted services, 
 |---|---|
 | `packages/core` | DID create/resolve, VC issue/verify, policy, revocation, audit |
 | `packages/middleware` | MCP server wrapper + HTTP middleware |
-| `packages/cli` | `create` / `issue` / `verify` / `revoke` / `inspect` |
-| `examples/protected-tool` | End-to-end golden-path demo |
+| `packages/cli` | `init` / `onboard` / `connect` / `revoke` — plus `create` / `issue` / `verify` / `inspect` |
+| `examples/protected-tool` | End-to-end golden-path demos, including the unmodified-client proxy demo |
 | `docs/` | [Concepts](docs/CONCEPTS.md) · [Architecture](docs/ARCHITECTURE.md) · [Security model](docs/SECURITY.md) · [Threat model](docs/THREAT-MODEL.md) · ADRs |
 
 Contributing? See [`CONTRIBUTING.md`](CONTRIBUTING.md), and start with [`docs/CONCEPTS.md`](docs/CONCEPTS.md). Security reports: [`SECURITY.md`](SECURITY.md).

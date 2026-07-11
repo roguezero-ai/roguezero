@@ -95,6 +95,14 @@ export type VerificationFailureReason =
   | "nonce-invalid"
   | "nonce-replayed"
   | "revoked"
+  // Revocation *source* failures. Distinct from `revoked` because they are operational, not
+  // a verdict about the credential — and distinct from each other because the response
+  // differs: page someone, fix a config, or treat it as an attack.
+  | "revocation-list-unavailable"
+  | "revocation-list-stale"
+  | "revocation-list-untrusted"
+  | "revocation-list-invalid"
+  | "revocation-list-rollback"
   | "malformed-credential"
   | "unresolvable-did"
   // Presenter is not the subject the credential was issued to (confused-deputy defense),

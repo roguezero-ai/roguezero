@@ -4,5 +4,8 @@
  * be driven programmatically; the `bin` entrypoint is a thin argv parser over them.
  */
 
+export * from "./bundle.js";
 export * from "./keystore.js";
 export * from "./commands.js";
+export * from "./publish.js";
+export * from "./workspace.js";

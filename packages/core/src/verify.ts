@@ -67,10 +67,21 @@ export interface VerifiedRequest {
   evidence: AuditEvent["evidence"];
 }
 
-const noRevocation: RevocationChecker = async () => false;
+/**
+ * A checker that never revokes anything — i.e. **no kill switch**.
+ *
+ * Exported, named, and required to be passed explicitly, because the silent version of this was
+ * a hole: a guard built without a revocation source would happily accept a credential its
+ * operator had revoked. Grants are long-lived precisely *because* revocation is checked on every
+ * call; take the check away and a capability is an API key with extra steps.
+ *
+ * Legitimate uses: tests, and a verifier that genuinely has no revocation source and accepts
+ * that a credential can only be stopped by expiring.
+ */
+export const neverRevoked: RevocationChecker = async () => false;
 
 export async function verifyRequest(options: VerifyRequestOptions): Promise<VerifiedRequest> {
-  const { presentation, audience, resolver, nonceStore, isRevoked = noRevocation } = options;
+  const { presentation, audience, resolver, nonceStore, isRevoked = neverRevoked } = options;
   const trusted = new Set(options.trustedIssuers);
 
   // 1. Presentation: holder signature + audience binding.
@@ -170,11 +181,25 @@ export async function verifyRequest(options: VerifyRequestOptions): Promise<Veri
     );
   }
 
-  // 8. Revocation.
-  if (
-    (await isRevoked({ id: profileEnv.id, issuer: profileEnv.issuer })) ||
-    (await isRevoked({ id: capabilityEnv.id, issuer: capabilityEnv.issuer }))
-  ) {
+  // 8. Revocation. A failure to *consult* the list (unreachable, stale, unsigned, rolled back)
+  // is a denial, not an allow — and since binding is already confirmed, it names the actor
+  // rather than auditing "unknown".
+  let revoked: boolean;
+  try {
+    revoked =
+      (await isRevoked({ id: profileEnv.id, issuer: profileEnv.issuer })) ||
+      (await isRevoked({ id: capabilityEnv.id, issuer: capabilityEnv.issuer }));
+  } catch (error) {
+    if (error instanceof VerificationError) {
+      throw new VerificationError(error.message, error.reason, identified);
+    }
+    throw new VerificationError(
+      `revocation status could not be determined: ${error instanceof Error ? error.message : String(error)}`,
+      "revocation-list-unavailable",
+      identified,
+    );
+  }
+  if (revoked) {
     throw new VerificationError("a presented credential has been revoked", "revoked", identified);
   }
 
