@@ -31,6 +31,23 @@ This is security infrastructure: a crypto mistake here is worse than no product.
 
 Every deny carries a typed reason naming the failed check (T1–T11 map to distinct error types). This is both a security property (auditability) and the product's developer experience.
 
+## Tool runtime (credential injection)
+
+The runtime extends the model above: it also **holds downstream tool credentials** and injects them
+so agents never do. That is a higher-stakes surface (a mistake leaks a live API key, not just an
+identity assertion), so it has its own controls:
+
+| # | Threat | Control |
+|---|---|---|
+| R1 | **Credential at rest** | Envelope encryption: a passphrase-derived (`argon2id`) or KMS root key wraps a data key; each credential sealed with XChaCha20-Poly1305, AAD-bound to its tool. A whole-file HMAC manifest detects tampering, deletion, and rollback. Written `0600`, atomically. |
+| R2 | **Decrypt before authorization** | Ordering is the control: authenticate → policy → revocation → **then** decrypt. A denied or revoked call never decrypts a credential. |
+| R3 | **Credential leak in transit** | Decrypted late, injected server-side (bearer/basic/header — never a query param), and never logged, returned to the agent, or placed in a URL. |
+| R4 | **SSRF / metadata exfil** | Agents name a **tool**, never a URL. The registry pins scheme/host/path/method; private, loopback, link-local, and cloud-metadata addresses are refused unless a tool is explicitly `internal`. The runtime resolves the host once and connects to that exact IP (no DNS-rebind window) and does not follow redirects. |
+| R5 | **Path / header injection via params** | Agent parameters are typed and validated; path params can't traverse, and control characters/CRLF are rejected everywhere. |
+
+The root key at rest is the runtime's real boundary — protect it with `argon2id` (nothing secret at
+rest) or a KMS, and keep any key file out of the vault's own backups.
+
 ## Consciously accepted gaps (MVP, local-only demo)
 
 Stated so nobody mistakes the demo for a production deployment:

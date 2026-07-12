@@ -59,6 +59,18 @@ jobs:
       - name: Unattended-agent demo (renew live → revoke → no resurrection)
         run: node examples/protected-tool/dist/demo-unattended.js
 
+      # The tool-runtime claim: an agent calls a real HTTP tool through the runtime and NEVER holds
+      # the credential; a revoked agent is denied before the downstream is ever touched. If this
+      # breaks, "Arcade, but self-hosted" is false, so it fails the build.
+      - name: Tool-runtime demo (credential injected server-side → deny → revoked, downstream untouched)
+        run: node examples/protected-tool/dist/demo-runtime.js
+
+      # The plug-and-play runtime: an unmodified MCP client via connect → runtime mcp, credential
+      # injected server-side, revoked mid-session. If this breaks, "point your agent at it, it never
+      # holds the keys" is false, so it fails the build.
+      - name: Plug-and-play runtime demo (unmodified MCP client → connect → runtime mcp)
+        run: node examples/protected-tool/dist/demo-runtime-mcp.js
+
       # The kill switch has to survive leaving one machine: publish a signed list, then prove a
       # verifier honours it and refuses a replayed older one.
       - name: Signed revocation list round-trip

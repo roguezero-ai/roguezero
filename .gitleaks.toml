@@ -1,0 +1,19 @@
+# gitleaks configuration — secret scanning for the public repo.
+#
+# Real code keeps ALL default rules. We allowlist only the places that intentionally contain
+# credential-SHAPED but FAKE strings: test fixtures (throwaway token-shaped values), the changelog
+# (which references token formats in release notes), and the CLI integration labels (help text that
+# shows a token's format so users recognize theirs). None of these are ever real secrets — the
+# project's discipline is that no real key enters the repo (see SECURITY.md). The allowlist is
+# path-scoped and documented so it never quietly hides a leak in real code.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Fake, credential-shaped strings confined to tests, release notes, and format hints."
+paths = [
+  '''.*\.test\.ts$''',                       # unit/integration test fixtures use throwaway tokens
+  '''CHANGELOG\.md''',                       # release notes name token formats
+  '''packages/cli/src/integrations\.ts''',   # secret-label help text shows a token's shape
+]
