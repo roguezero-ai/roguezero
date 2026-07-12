@@ -1,6 +1,6 @@
 {
   "name": "@roguezero/cli",
-  "version": "0.2.0",
+  "version": "0.4.0",
   "description": "RogueZero developer CLI: create identities, issue/verify credentials, revoke, and inspect audit logs.",
   "license": "Apache-2.0",
   "type": "module",

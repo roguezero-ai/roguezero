@@ -1,143 +1,131 @@
 # RogueZero
 
-**The kill switch and flight recorder for AI agents.** Revoke any agent's access in one command — its next call is denied — and reconstruct every decision from an append-only audit trail.
+**Give an AI agent scoped access to your tools — without handing it the credentials.**
 
-AI agents are being wired into real tools faster than teams can control them. Today the credential is a shared API key in a config file: when an agent misbehaves, the logs blame a service account, and the only way to shut it off is to rotate the key — which breaks everything else using it. RogueZero gives every agent a **scoped, expiring, revocable** permission, checks it on **every call**, and denies anything that doesn't match — with a decision log you can actually prove. Drop-in middleware for MCP and HTTP tools; runs entirely on your own machines.
+Open-source and self-hosted. The runtime holds your tools' API keys; agents authenticate, and the
+runtime injects the key server-side on every call. Revoke an agent and its next call is denied —
+*before the credential is even decrypted*. It runs entirely on your own machines: no hosted service,
+no accounts, no blockchain, and your secrets never leave your infrastructure.
 
-> Built on W3C DIDs and Verifiable Credentials under the hood — but you never touch them. No blockchain, no wallets, no tokens. New to the idea? [`docs/CONCEPTS.md`](docs/CONCEPTS.md) explains it in five plain concepts.
+Today an agent is handed a long-lived API key in an env var: if it goes rogue you rotate the key and
+pray, the logs blame a service account, and you can't prove what it did. RogueZero puts a **credential
+firewall** between the agent and the tool that answers the four questions that matter — *who is this
+agent, what may it do, can I kill it, and can I prove what happened.*
+
+> New to the idea? [`docs/CONCEPTS.md`](docs/CONCEPTS.md) explains it in plain language. Built on W3C
+> DIDs and Verifiable Credentials under the hood — but you never touch them.
 
 ## Status
 
-🚧 **Early beta**, pre-1.0. The verification core and both middlewares work; the golden-path demo runs end to end and is enforced in CI. See [`CONTRIBUTING.md`](CONTRIBUTING.md) to build and run it.
+🚧 **Early beta**, pre-1.0. The runtime (vault, SSRF-contained tool registry, credential injection,
+the request spine), the HTTP and MCP entrypoints, and the self-host CLI all work and are exercised by
+CI-enforced end-to-end demos. See [`CONTRIBUTING.md`](CONTRIBUTING.md) to build and run it.
 
-## How it works
+## Quickstart — self-host a tool runtime
 
-Put RogueZero in front of any tool. Every call runs one fail-closed sequence before your tool executes:
-
-```
-roguezero onboard   → agent identity + AgentProfile + Capability credentials, one bundle file
-roguezero connect   → proxies the agent's MCP calls, presenting its credentials on each one
-  → middleware verifies: signature · issuer trust · expiry · audience/nonce · revocation
-  → policy allow/deny
-  → audit event (actor, subject, tool, decision, evidence, timestamp)
-roguezero revoke    → the same call is now denied
-```
-
-Your agent talks plain MCP to `connect` and never learns any of this happened. Your tool wraps
-its handlers with one `guard.protect(...)` call. Nobody writes crypto.
-
-**The moment that matters:** one `revoke` kills one agent's one permission — its next call is denied, with the reason in the log. No key rotation. No collateral damage to anything else.
-
-## Quickstart
-
-Nothing to clone, nothing to build, and **no changes to your agent**. Three commands:
+Give an agent access to GitHub without ever handing it your token:
 
 ```bash
-npx @roguezero/cli init --audience "mcp://reports.local"
-npx @roguezero/cli onboard reporter --tool read_report=reports:read
-npx @roguezero/cli connect --agent reporter -- node ./your-mcp-server.js
+export RZ_VAULT_PASSPHRASE="a long passphrase"
+
+npx @roguezero/cli runtime init ./runtime --audience runtime://acme
+npx @roguezero/cli runtime tool add github --url https://api.github.com/user --cred-ref gh
+echo "$GITHUB_TOKEN" | npx @roguezero/cli runtime secret set --tool github --ref gh
+npx @roguezero/cli onboard my-agent --tool github=gh:read   # grant one agent the tool
+npx @roguezero/cli runtime serve                            # http://127.0.0.1:8787
 ```
 
-`init` writes a config, a controller identity, and a deny-everything policy. `onboard` mints
-the agent, issues its credentials, and grants it exactly one tool — writing `reporter.rz.json`,
-a single file the agent mounts, like a kubeconfig. `connect` is a proxy: it speaks plain MCP to
-your agent and proves the agent's identity to the tool on every call.
-
-Requires Node ≥ 20. Then, whenever you want it to stop:
+The token is sealed in an **encrypted vault** (a passphrase-derived key — nothing secret at rest).
+The agent authenticates and calls the tool; the runtime injects the token server-side, calls GitHub,
+and returns the result. The agent only ever holds *its own identity* — never your API key. Revoke it:
 
 ```bash
-npx @roguezero/cli revoke --agent reporter    # the next call is denied
+npx @roguezero/cli revoke --agent my-agent    # the next call is denied — before decrypt
 ```
 
-### Plug it into a real MCP client
+## Plug into any MCP agent — zero agent-side code
 
-Point Cursor, VS Code, or any MCP client at `connect` instead of your server. Nothing
-else changes — no SDK, no code, no presentation logic:
+Expose the same tools over MCP and point an **unmodified** MCP client (Cursor, VS Code, your SDK
+agent) at them through `connect`. The agent sees your tools, calls them, and never learns a credential
+existed:
 
 ```jsonc
 {
   "mcpServers": {
-    "reports": {
+    "tools": {
       "command": "npx",
-      "args": ["@roguezero/cli", "connect", "--agent", "reporter",
-               "--", "node", "/path/to/your-mcp-server.js"]
+      "args": ["@roguezero/cli", "connect", "--agent", "my-agent",
+               "--", "npx", "@roguezero/cli", "runtime", "mcp"]
     }
   }
 }
 ```
 
-The agent never sees a credential, a nonce, or a DID. It calls `read_report` and gets a report —
-or a denial that says exactly which check failed and how to fix it.
+## How it works
 
-### Run the full demo
+Every call runs one ordered, **fail-closed** sequence — and the credential is decrypted **last**, only
+after the call has earned it:
 
-The end-to-end demo needs a checkout, Node ≥ 22.13, and [pnpm](https://pnpm.io)
-(`corepack enable` provides it). Node 22.13 is a pnpm 11 requirement; the published
-packages themselves run on Node ≥ 20.
-
-```bash
-pnpm install
-pnpm demo
+```
+authenticate the agent   (signature · issuer trust · expiry · audience/nonce)
+  → capability + policy   (may THIS agent call THIS tool, now? — default deny)
+  → revocation            (checked fresh on every call — the kill switch)
+  → resolve the request   (the agent named a TOOL, never a URL — the runtime pins the target)
+  → decrypt + inject      (the credential, injected server-side — never logged, never returned)
+  → call the tool → audit (actor, tool, decision, evidence, timestamp)
 ```
 
-That's it. The demo stands up a real MCP client ↔ server protected by RogueZero and walks
-the whole story: an allowed call, a call the policy denies, then the same call **denied
-after revocation** — printing the audit trail at the end. (`pnpm demo:stdio` runs the same
-thing over a real spawned MCP server.) It writes the audit log and revocation list to a
-throwaway temp directory — nothing lands in your working tree.
+A call that fails authentication, policy, or revocation **never decrypts a credential** and never
+touches the tool. One `revoke` kills one agent — no key rotation, no collateral damage.
 
-**`pnpm demo:connect` is the one to watch.** It drives a stock MCP client — containing no
-RogueZero code at all — through `roguezero connect`: the call is allowed, a tool that was never
-granted is denied, then the agent is revoked mid-session and the same call dies. All three
-demos run in CI, so if any of this stops being true, the build goes red.
+## Why it's safe
 
-### Try the CLI
+- **Agents name a tool, never a URL.** The runtime pins scheme/host/path/method, refuses private and
+  cloud-metadata addresses, connects to the validated IP (no DNS-rebind window), and never follows
+  redirects — so it can't be turned into an SSRF machine.
+- **Credentials are encrypted at rest** (envelope encryption, per-credential AEAD, whole-file
+  integrity), injected server-side, and **never** logged, returned, or placed in a URL.
+- **You hold the keys.** Root key from a passphrase (`argon2id`) or your KMS; secrets go in via
+  env/stdin, never argv. Nothing leaves your box.
 
-Use the published CLI directly — no checkout required:
+Full detail: [`docs/SECURITY.md`](docs/SECURITY.md) · [`docs/THREAT-MODEL.md`](docs/THREAT-MODEL.md) ·
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+
+## Also: agent identity for your own MCP/HTTP tools
+
+The runtime is built on a reusable trust spine you can use on its own — give an agent a scoped,
+revocable identity and protect *your own* tool with one `guard.protect(...)` call, no credential
+injection involved. That's the `init` / `onboard` / `connect` / `revoke` flow, and the unattended
+lifecycle (`renew --all`) that rotates credentials on a schedule without ever letting an agent mint
+its own. See [`packages/cli/README.md`](packages/cli/README.md).
+
+## Run the demos
+
+From a checkout (Node ≥ 22.13 and [pnpm](https://pnpm.io) via `corepack enable`; the published
+packages run on Node ≥ 20):
 
 ```bash
-alias rz="npx @roguezero/cli"
+pnpm install && pnpm build
+node examples/protected-tool/dist/demo-runtime-mcp.js   # the one to watch
 ```
 
-Or, from a clone, run it from the built output (`pnpm demo` above already builds it):
-`alias rz="node packages/cli/dist/bin.js"`.
-
-```bash
-CONTROLLER=$(rz create --out controller.key.json)     # the operator's identity
-AGENT=$(rz create --out agent.key.json)               # the agent's identity
-
-rz issue capability \
-  --issuer controller.key.json \
-  --subject "$AGENT" \
-  --audience mcp://reports.acme.example \
-  --tool read_report=reports:read \
-  --out capability.jwt
-
-rz verify --jwt capability.jwt                        # signature · issuer · expiry · shape
-rz verify --jwt capability.jwt --revocations revocations.json   # …and revocation status
-rz inspect --jwt capability.jwt                       # look inside the credential
-rz revoke --list revocations.json --jwt capability.jwt
-```
-
-Each command prints only its result on stdout (`create` prints the DID, nothing else), so
-`$(...)` capture works and no DID is ever copied by hand.
-
-The **audit log** is written by a protected tool at request time, not by these CLI commands —
-`pnpm demo` prints a full trail, and `rz inspect --audit <file>` pretty-prints any log a
-guard has written. Everything runs locally — no accounts, no hosted services, no blockchain.
+**`demo-runtime-mcp` is the headline:** a stock MCP client — no RogueZero code — reaches a real tool
+through `connect` → `runtime mcp`, the credential is injected server-side, and after `revoke` the same
+call dies. It writes everything to a throwaway temp dir. Every demo runs in CI, so if any of this
+stops being true, the build goes red.
 
 ## Layout
 
 | Path | Contents |
 |---|---|
-| `packages/core` | DID create/resolve, VC issue/verify, policy, revocation, audit |
-| `packages/middleware` | MCP server wrapper + HTTP middleware |
-| `packages/cli` | `init` / `onboard` / `connect` / `revoke` — plus `create` / `issue` / `verify` / `inspect` |
-| `examples/protected-tool` | End-to-end golden-path demos, including the unmodified-client proxy demo |
-| `docs/` | [Concepts](docs/CONCEPTS.md) · [Architecture](docs/ARCHITECTURE.md) · [Security model](docs/SECURITY.md) · [Threat model](docs/THREAT-MODEL.md) · ADRs |
+| `packages/core` | The runtime spine, credential vault + key providers, tool registry, injection proxy — plus DID/VC identity, policy, revocation, audit |
+| `packages/middleware` | MCP server wrapper + HTTP middleware over the identity spine |
+| `packages/cli` | `runtime init/tool/secret/serve/mcp` · `init/onboard/connect/renew/revoke` · lower-level identity ops |
+| `examples/protected-tool` | CI-enforced end-to-end demos (runtime over HTTP + MCP, unattended lifecycle, plug-and-play proxy) |
+| `docs/` | [Concepts](docs/CONCEPTS.md) · [Architecture](docs/ARCHITECTURE.md) · [Security](docs/SECURITY.md) · [Threat model](docs/THREAT-MODEL.md) |
 
-Contributing? See [`CONTRIBUTING.md`](CONTRIBUTING.md), and start with [`docs/CONCEPTS.md`](docs/CONCEPTS.md). Security reports: [`SECURITY.md`](SECURITY.md).
+Contributing? See [`CONTRIBUTING.md`](CONTRIBUTING.md). Security reports: [`SECURITY.md`](SECURITY.md).
 
 ## License
 
-[Apache-2.0](LICENSE). Free forever for the open-source SDK, middleware, and CLI.
+[Apache-2.0](LICENSE). Free forever for the open-source runtime, SDK, middleware, and CLI.

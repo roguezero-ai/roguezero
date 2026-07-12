@@ -1,68 +1,76 @@
 # @roguezero/cli
 
-Give an agent a scoped, revocable identity — without changing the agent.
+**Give an agent scoped access to a tool — without handing it the credential.** Open-source and
+self-hosted: the runtime holds your tool's API key, the agent authenticates, and the runtime injects
+the key server-side on every call. Revoke, and the next call dies — before the key is even decrypted.
+
+## Self-host a tool runtime
 
 ```bash
-npx @roguezero/cli init --audience "mcp://reports.local"
-npx @roguezero/cli onboard reporter --tool read_report=reports:read
-npx @roguezero/cli connect --agent reporter -- node ./your-mcp-server.js
-npx @roguezero/cli revoke --agent reporter     # the next call is denied
+export RZ_VAULT_PASSPHRASE="a long passphrase"
+
+npx @roguezero/cli runtime init ./runtime --audience runtime://acme
+npx @roguezero/cli runtime tool add github --url https://api.github.com/user --cred-ref gh
+echo "$GITHUB_TOKEN" | npx @roguezero/cli runtime secret set --tool github --ref gh
+npx @roguezero/cli onboard my-agent --tool github=gh:read   # grant an agent the tool
+npx @roguezero/cli runtime serve                            # http://127.0.0.1:8787
 ```
 
-`onboard` writes `reporter.rz.json` — one file (mode `0600`) holding the agent's key and
-credentials, the way a kubeconfig holds a cluster's. `connect` is an MCP stdio proxy: your
-agent speaks plain MCP to it, and it proves the agent's identity to the protected tool on
-every call. The agent never sees a nonce, a credential, or a DID.
+Now an agent calls the tool through the runtime and **never holds the token**:
 
-Point any MCP client at it — Cursor, VS Code, your own SDK code:
+- `GET /challenge` → a one-time nonce
+- `POST /call {tool, presentation}` → the runtime authenticates the agent, checks policy and
+  revocation, decrypts the credential, injects it, calls the tool, audits, and returns the result.
 
-```jsonc
-{
-  "mcpServers": {
-    "reports": {
-      "command": "npx",
-      "args": ["@roguezero/cli", "connect", "--agent", "reporter",
-               "--", "node", "/path/to/your-mcp-server.js"]
-    }
-  }
-}
+The token lives **encrypted in the vault** (a passphrase-derived key — nothing secret at rest). The
+agent only ever holds its own identity, never your API key. Revoke the agent and the next call is
+denied *before the credential is even decrypted*.
+
+### Why it's safe
+
+- Agents name a **tool**, never a URL — the runtime pins scheme/host/path/method, so there's no SSRF
+  (private/metadata addresses are refused unless a tool is explicitly `--internal`).
+- Credentials are AEAD-encrypted at rest (envelope encryption, whole-file integrity), injected
+  server-side, and **never logged, returned, or placed in a URL**.
+- The vault passphrase and the secrets come from **env/stdin, never argv** (no shell-history leaks).
+- **Decrypt is last:** an unauthenticated, unauthorized, or revoked call never touches the vault.
+
+## Agent identity (how agents authenticate)
+
+`onboard` writes `my-agent.rz.json` — one file (mode `0600`) holding the agent's key and credentials,
+the way a kubeconfig holds a cluster's. The agent presents it on every call; it never sees your tool
+credential, only its own identity. For **MCP** tools instead of the HTTP runtime, `connect` is a
+stdio proxy that does the same on the agent side with zero agent-side code:
+
+```bash
+npx @roguezero/cli connect --agent my-agent -- node ./your-mcp-server.js
 ```
 
-`connect` needs `@modelcontextprotocol/sdk` (an optional peer). Every other command works
-without it.
+`connect` needs `@modelcontextprotocol/sdk` (an optional peer); every other command works without it.
 
 ## Agents that run unattended
 
-For agents nobody is watching, credentials still have to rotate — but an agent that can renew
-itself can't be killed. So renewal runs **where the controller key lives** (a cron host, a CI
-job), never on the agent:
+Credentials still rotate — but an agent that can renew itself can't be killed, so renewal runs
+**where the controller key lives** (a cron host), never on the agent:
 
 ```bash
-# On the controller host, on a schedule:
-roguezero renew --all            # renew every agent that's due; skip any you've revoked
+roguezero renew --all      # renew every agent that's due; refuse any you've revoked
 ```
 
-`connect` re-reads the bundle on every call, so a renewed credential reaches a running agent
-with no restart. And `renew --all` refuses to renew a revoked agent — so `revoke` is final:
-automation can never bring back one you killed. The unattended loop (renew live → revoke → no
-resurrection) is CI-enforced.
+`connect` and the runtime re-read on every call, so a renewed credential reaches a running agent with
+no restart — and `renew --all` refuses a revoked agent, so `revoke` is final. CI-enforced.
 
-## Everything else
+## Command reference
 
 ```
-roguezero init      # scaffold config + controller + deny-everything policy
-roguezero onboard   # create an agent, issue its credentials, grant it tools
-roguezero connect   # run an MCP client through RogueZero (zero agent-side code)
-roguezero renew     # rotate an agent's credentials (--all = fleet scheduler)
-roguezero revoke    # kill an agent, a credential, or an id
-roguezero create    # generate keys + a DID
-roguezero issue     # issue an AgentProfile or AgentCapability credential
-roguezero verify    # verify a credential (pass --revocations to check revocation too)
-roguezero inspect   # pretty-print a VC or an audit log
+roguezero runtime init | tool add | secret set | serve   self-host a credential-injecting runtime
+roguezero init | onboard | connect | renew | revoke      agent identity: scaffold, grant, run, kill
+roguezero create | issue | verify | inspect              lower-level identity/credential ops
+roguezero revocations publish                            sign a fleet-wide kill switch
 ```
 
-Every command prints only its result on stdout, so `AGENT=$(roguezero create --out a.json)`
-captures a DID and nothing else.
+`RZ_VAULT_PASSPHRASE` is required for `runtime` commands; secrets go in via `RZ_SECRET` or stdin.
+Run `roguezero --help` for flags.
 
-Status: **early beta**, pre-1.0. Exercised end-to-end by the golden-path demos, including an
-unmodified MCP client driven through `connect` (CI-enforced). Run `roguezero --help` for flags.
+Status: **early beta**, pre-1.0. The runtime, unattended lifecycle, and plug-and-play MCP flows are
+each exercised by CI-enforced end-to-end demos.

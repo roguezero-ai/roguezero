@@ -28,9 +28,22 @@ pipeline: `packages/core/src/verify.ts` (`verifyRequest`) composed by
 | T9 | **Unauditable decision** — a decision that can't be recorded | Audit is load-bearing: if the sink throws, the call is **denied** (`authorize.ts` `auditThen`), never allowed-then-lost | `authorize.test.ts` failing sink → `audit-write-failed` | ✅ |
 | T10 | **Malformed / hostile input** — junk JWTs, bad subjects | Zod validation at every trust boundary (credential subjects, policy, audit); typed parse errors → deny | `credentials.test.ts` invalid subject (issue + verify side) → `malformed-credential` | 🟡 fuzz/size-limits pending |
 | T11 | **`alg` downgrade / `alg:none`** — unsigned or weakened token | `did-jwt` requires a signature matching a resolved verification method; `none` is not accepted | — explicit regression test pending | 🟡 pending |
-| T12 | **Availability / challenge flood** — exhaust verifier memory | Nonce store bounded: throttled sweep + hard `maxEntries` cap (`nonce.ts`); remote revocation fetch has a 3s timeout | `nonce.test.ts` bounded-memory (sweep + cap) | 🟡 rate-limiting pending |
+| T12 | **Availability / challenge flood** — exhaust verifier memory or monopolize the unauthenticated `/challenge` mint | Nonce store bounded: throttled sweep + hard `maxEntries` cap (`nonce.ts`); remote revocation fetch has a 3s timeout; **per-client token-bucket rate limiter on `/challenge`** (`rate-limit.ts`, wired in `runtime-server.ts`, secure-by-default, keyed on socket address not spoofable `X-Forwarded-For`), and the limiter bounds its own memory | `nonce.test.ts` bounded-memory (sweep + cap); `rate-limit.test.ts` burst→throttle→recover + self-bounded memory; `runtime-server.test.ts` `/challenge` → 429 + `Retry-After` | ✅ |
 | T13 | **Audit tampering** — erase evidence after the fact | Append-only JSONL sink; evidence carries hashes, never raw tokens/keys | append-only by construction | 🟡 hash-chaining deferred |
 | T14 | **Agent key compromise** — private key leaked from disk/env | Short-lived capabilities bound blast radius; revocation kills the rest; keystores written mode `0600`, never logged | `revocation.test.ts` (kill switch) | 🟡 rotation deferred |
+
+## Tool runtime — threats → controls → evidence
+
+The runtime holds and injects downstream tool credentials, so it adds a threat surface with its own
+controls, each backed by a negative-first test.
+
+| Threat | Control | Evidence |
+|---|---|---|
+| Credential recovered from the vault at rest | Envelope encryption (`argon2id`/KMS root → data key → per-credential XChaCha20-Poly1305, AAD-bound); whole-file HMAC manifest | `core/vault*.test.ts` — wrong key, tampered ciphertext/nonce/manifest, deleted/injected entry, rolled-back generation all fail closed |
+| Credential decrypted for a call that is then denied | Ordered spine: authenticate → policy → revocation → **then** decrypt | `core/runtime.test.ts` — a revoked call is denied with the downstream never contacted (credential never decrypted) |
+| SSRF: agent points the credential at a private/metadata host | Agent names a tool, not a URL; registry pins target; private/metadata IPs refused unless `internal`; resolve-then-pin the IP; no redirects | `core/registry.test.ts`, `core/proxy.test.ts` — agent input can't reach host/scheme; blocked IPs (direct + via DNS) rejected; redirect not followed |
+| Path traversal / header (CRLF) injection via params | Typed params; path traversal + control chars rejected | `core/registry.test.ts` |
+| Credential leaks to the agent or logs | Injected server-side; never returned/logged; audit stores hashes, not secrets | `core/runtime.test.ts` (`demo-runtime`/`demo-runtime-mcp` assert the agent never receives the token) |
 
 ## Consciously accepted gaps (MVP)
 
@@ -41,7 +54,7 @@ Unchanged from [SECURITY.md](SECURITY.md#consciously-accepted-gaps-mvp-local-onl
 - **No delegation chains** — one hop (controller → agent); sub-agent attenuation is deferred, and its threats with it.
 - **No multitenancy / tenant isolation** — single-operator assumption.
 - **`did:web` inherits DNS/HTTPS trust** — a domain hijack forges an org identity (the method's documented tradeoff).
-- **No rate limiting** on the unauthenticated challenge endpoint; memory is bounded, availability under flood is not.
+- The unauthenticated challenge endpoint is **rate-limited per client** (token bucket, secure default) and memory is bounded, but a **distributed** flood from many source addresses is only partially mitigated in-process — a shared/gateway throttle is the horizontal-scale path (same interface).
 
 ## What CI proves on every commit
 
@@ -54,8 +67,9 @@ control turns CI red.
 ## Before public launch
 
 The 🟡 items above are the pending hardening work: key rotation, audit hash-chaining,
-credential-parsing fuzz tests plus an explicit `alg:none` regression test, challenge-endpoint
-rate-limiting, input size limits, distinct 401/403 responses, and revoked-actor attribution.
+credential-parsing fuzz tests plus an explicit `alg:none` regression test,
+input size limits, distinct 401/403 responses, and revoked-actor attribution.
+(Challenge-endpoint rate-limiting is now done — see T12.)
 Public launch is gated on closing them, plus CI secrets scanning. (A root `SECURITY.md` with a
 disclosure contact is already in place.) None of these block a private design-partner pilot.
 

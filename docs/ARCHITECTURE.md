@@ -63,6 +63,32 @@ Every path — including verifier crashes and resolver failures — ends in an a
 
 **Where the presentation rides in MCP**: per-call in `_meta`/params vs. per-session at initialize with per-call re-check vs. transport header. MCP auth conventions are converging on OAuth 2.1 and may collide with any choice; whatever we pick lives in one adapter module so changing it is cheap. Start with per-call — it's the strongest security story (action-time verification) and the clearest demo.
 
+## Tool runtime (credential injection)
+
+The runtime composes the request flow above with three new `core` components so it can call a tool
+*for* the agent, injecting a credential the agent never holds:
+
+- **Credential vault** (`core/vault.ts`, `vault-keys.ts`, `vault-store.ts`) — envelope encryption for
+  downstream secrets; pluggable root key (`argon2id` passphrase / KMS); atomic, rollback-aware store.
+- **Tool registry** (`core/registry.ts`) — declarative tool defs (pinned scheme/host/path/method +
+  typed params + credential ref). `resolveRequest(tool, args)` returns a pinned `RequestPlan` or
+  throws — the SSRF-containment boundary; the agent names a tool, never a URL.
+- **Injection proxy** (`core/proxy.ts`) — `dispatchToolCall`: resolve → validate IP → pinned-IP dial,
+  no redirects, size/time caps; injects the credential (bearer/basic/header).
+
+**Runtime request flow** (`handleToolCall`, `core/runtime.ts`) — the identity flow, then:
+
+```
+authenticate + capability + policy + revocation   (reuses the flow above)
+  └─ only if ALLOWED ─▶ resolveRequest (registry, SSRF-contained)
+                       └─▶ getCredential (vault)          ← decrypt is LAST, only now
+                          └─▶ inject + dispatch (proxy) → audit → zero the credential bytes
+```
+
+Transports: `createRuntimeServer` (HTTP: `/challenge`, `/call`) and `createRuntimeMcpServer` (MCP
+stdio, reached by unmodified clients via `connect`) — both thin glue over `handleToolCall`. Security
+detail: [`SECURITY.md`](SECURITY.md) · [`THREAT-MODEL.md`](THREAT-MODEL.md).
+
 ## Data shapes (illustrative, Zod-defined in code)
 
 **AgentCapability VC (JWT claims, abridged):**
