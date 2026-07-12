@@ -11,3 +11,5 @@ coverage/
 *.pem
 *.key
 keys/
+# local research / intel scratch — never version-controlled (may hold competitive material)
+dashtel/

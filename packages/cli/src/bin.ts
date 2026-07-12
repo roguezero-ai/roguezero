@@ -59,6 +59,19 @@ Publishing a fleet-wide kill switch:
   roguezero revocations publish [--sign-with <keystore>] [--out <file.jwt>] [--ttl <sec>]
       Signs the local list so verifiers anywhere can trust it. Re-publish on a
       schedule — a stale list is rejected, even if nothing has changed.
+
+Tool runtime — inject a tool's credential so the agent never holds it (RZ_VAULT_PASSPHRASE required):
+  roguezero runtime init <dir> --audience <aud>
+  roguezero runtime tool add <id> --url <url> [--method GET] --cred-ref <ref> [--placement bearer] [--internal]
+  roguezero runtime secret set --tool <id> --ref <ref>          (value from RZ_SECRET or stdin, never argv)
+  roguezero runtime serve [--port <p>]                          expose the tools over HTTP
+  roguezero runtime mcp                                         expose the tools over MCP stdio
+      An unmodified MCP client reaches them via connect: roguezero connect --agent <a> -- roguezero runtime mcp
+
+Popular integrations (curated, least-privilege — run inside a runtime workspace):
+  roguezero add                                    list the available integrations
+  roguezero add <name>                             register its tool(s); store its credential too if
+                                                   RZ_SECRET/stdin + RZ_VAULT_PASSPHRASE are set
 `;
 
 function req(value: string | undefined, flag: string): string {
@@ -82,10 +95,175 @@ async function exists(path: string): Promise<boolean> {
   }
 }
 
+/** Read a secret from stdin (piped), so it never lands in argv / shell history. */
+async function readStdin(): Promise<string> {
+  if (process.stdin.isTTY) return "";
+  const chunks: Buffer[] = [];
+  for await (const c of process.stdin) chunks.push(c as Buffer);
+  return Buffer.concat(chunks).toString("utf8").trim();
+}
+
 async function run(argv: string[]): Promise<number> {
   const [command, ...rest] = argv;
 
   switch (command) {
+    case "runtime": {
+      const [sub, ...subRest] = rest;
+      const passphrase = () =>
+        req(process.env.RZ_VAULT_PASSPHRASE, "RZ_VAULT_PASSPHRASE (set it in the environment)");
+      const { runtimeInitCommand, toolAddCommand, secretSetCommand, serveCommand } =
+        await import("./runtime.js");
+
+      if (sub === "init") {
+        const [dirArg, ...flags] = subRest;
+        const { values } = parseArgs({ args: flags, options: { audience: { type: "string" } } });
+        const result = await runtimeInitCommand({
+          dir: dirArg && !dirArg.startsWith("-") ? dirArg : ".",
+          audience: req(values.audience, "audience"),
+          passphrase: passphrase(),
+        });
+        process.stdout.write(`${result.controllerDid}\n`);
+        process.stderr.write(
+          `runtime initialized in ${dirname(result.configPath)}\n` +
+            `  registry: ${result.registryPath}\n` +
+            `  vault:    ${result.vaultPath}\n\n` +
+            `next: roguezero runtime tool add <id> --url <url> --cred-ref <ref> [--internal]\n`,
+        );
+        return 0;
+      }
+      if (sub === "tool") {
+        const [action, id, ...flags] = subRest;
+        if (action !== "add") throw new Error(`unknown \`runtime tool\` command "${action ?? ""}"`);
+        if (!id || id.startsWith("-")) throw new Error("`runtime tool add` requires a tool id");
+        const { values } = parseArgs({
+          args: flags,
+          options: {
+            url: { type: "string" },
+            method: { type: "string" },
+            "cred-ref": { type: "string" },
+            placement: { type: "string" },
+            header: { type: "string" },
+            internal: { type: "boolean" },
+            config: { type: "string" },
+          },
+        });
+        await toolAddCommand({
+          configPath: resolve(values.config ?? CONFIG_FILENAME),
+          tool: {
+            id,
+            method: values.method ?? "GET",
+            url: req(values.url, "url"),
+            credentialRef: req(values["cred-ref"], "cred-ref"),
+            placement: values.placement as "bearer" | "basic" | "header" | undefined,
+            header: values.header,
+            internal: values.internal,
+          },
+        });
+        process.stderr.write(`added tool "${id}"\n`);
+        return 0;
+      }
+      if (sub === "secret") {
+        const [action, ...flags] = subRest;
+        if (action !== "set")
+          throw new Error(`unknown \`runtime secret\` command "${action ?? ""}"`);
+        const { values } = parseArgs({
+          args: flags,
+          options: {
+            tool: { type: "string" },
+            ref: { type: "string" },
+            config: { type: "string" },
+          },
+        });
+        const value = process.env.RZ_SECRET ?? (await readStdin());
+        if (!value) throw new Error("no secret provided; set RZ_SECRET or pipe it on stdin");
+        await secretSetCommand({
+          configPath: resolve(values.config ?? CONFIG_FILENAME),
+          tool: req(values.tool, "tool"),
+          ref: req(values.ref, "ref"),
+          value,
+          passphrase: passphrase(),
+        });
+        process.stderr.write(`stored credential "${values.ref}" for tool "${values.tool}"\n`);
+        return 0;
+      }
+      if (sub === "serve") {
+        const { values } = parseArgs({
+          args: subRest,
+          options: { port: { type: "string" }, config: { type: "string" } },
+        });
+        await serveCommand({
+          configPath: resolve(values.config ?? CONFIG_FILENAME),
+          passphrase: passphrase(),
+          port: values.port ? Number(values.port) : 8787,
+        });
+        await new Promise<void>(() => {}); // serve until interrupted
+        return 0;
+      }
+      if (sub === "mcp") {
+        // Serve the tools over MCP stdio, so an unmodified MCP client can reach them via `connect`.
+        const { values } = parseArgs({ args: subRest, options: { config: { type: "string" } } });
+        const [{ buildRuntimeOptions }, { createRuntimeMcpServer }, { StdioServerTransport }] =
+          await Promise.all([
+            import("./runtime.js"),
+            import("./runtime-mcp.js"),
+            import("@modelcontextprotocol/sdk/server/stdio.js"),
+          ]);
+        const options = await buildRuntimeOptions({
+          configPath: resolve(values.config ?? CONFIG_FILENAME),
+          passphrase: passphrase(),
+        });
+        await createRuntimeMcpServer(options).connect(new StdioServerTransport());
+        process.stderr.write(
+          `[roguezero] runtime MCP server ready on stdio — ${options.registry.byId.size} tool(s)\n`,
+        );
+        await new Promise<void>(() => {}); // serve until the client closes stdin
+        return 0;
+      }
+      throw new Error(
+        `unknown runtime command "${sub ?? ""}"; expected init | tool | secret | serve | mcp`,
+      );
+    }
+
+    case "add": {
+      const { addIntegrationCommand } = await import("./runtime.js");
+      const { listIntegrations } = await import("./integrations.js");
+      const [name, ...flags] = rest;
+
+      // No integration named → list the curated starter pack and exit.
+      if (!name || name.startsWith("-")) {
+        process.stdout.write("Available integrations:\n");
+        for (const i of listIntegrations()) {
+          process.stdout.write(`  ${i.id.padEnd(10)} ${i.description}\n`);
+        }
+        process.stdout.write(`\nAdd one:  roguezero add <name>\n`);
+        return 0;
+      }
+
+      const { values } = parseArgs({ args: flags, options: { config: { type: "string" } } });
+      const configPath = resolve(values.config ?? CONFIG_FILENAME);
+      const secret = process.env.RZ_SECRET ?? (await readStdin());
+      const hasSecret = secret.length > 0;
+      const result = await addIntegrationCommand({
+        configPath,
+        integration: name,
+        secret: hasSecret ? secret : undefined,
+        passphrase: hasSecret
+          ? req(process.env.RZ_VAULT_PASSPHRASE, "RZ_VAULT_PASSPHRASE (set it in the environment)")
+          : undefined,
+      });
+      process.stderr.write(
+        `added "${result.integration}": ${result.addedTools.join(", ")}\n` +
+          (result.secretStored
+            ? `  credential stored in the vault (ref: ${result.secretRefs.join(", ")})\n`
+            : `  no credential stored yet — provide it via RZ_SECRET/stdin + RZ_VAULT_PASSPHRASE,\n` +
+              `  or: roguezero runtime secret set --tool ${result.addedTools[0]} --ref ${result.secretRefs[0]}\n`) +
+          `\nnext: grant an agent the tool, then serve:\n` +
+          `  roguezero onboard <agent> --tool ${result.addedTools[0]}=call\n` +
+          `  roguezero runtime serve\n`,
+      );
+      return 0;
+    }
+
     case "init": {
       const { values } = parseArgs({
         args: rest,

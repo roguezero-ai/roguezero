@@ -8,7 +8,9 @@
     "demo": "node dist/demo.js",
     "demo:stdio": "node dist/agent.js",
     "demo:connect": "node dist/demo-connect.js",
-    "demo:unattended": "node dist/demo-unattended.js"
+    "demo:unattended": "node dist/demo-unattended.js",
+    "demo:runtime": "node dist/demo-runtime.js",
+    "demo:runtime-mcp": "node dist/demo-runtime-mcp.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

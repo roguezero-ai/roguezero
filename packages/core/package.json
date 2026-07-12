@@ -1,6 +1,6 @@
 {
   "name": "@roguezero/core",
-  "version": "0.2.0",
+  "version": "0.4.0",
   "description": "Verifiable agent identity and delegated authorization: DID create/resolve, JWT-VC issue/verify, request verification (replay + audience + revocation), policy, and audit.",
   "license": "Apache-2.0",
   "type": "module",
@@ -44,7 +44,9 @@
     "build": "tsc -b"
   },
   "dependencies": {
+    "@noble/ciphers": "^1.2.1",
     "@noble/curves": "^1.7.0",
+    "@noble/hashes": "^1.7.0",
     "did-jwt": "^8.0.0",
     "did-jwt-vc": "^4.0.0",
     "did-resolver": "^4.1.0",
