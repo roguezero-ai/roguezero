@@ -137,4 +137,16 @@ export interface AuditEvent {
      * so repeated attack attempts are correlatable even when actor/subject are unknown. */
     presentation?: string;
   };
+  /**
+   * What the agent tried to do — so a denied call shows *what was blocked*, not just that it was.
+   * Agent-supplied only: `args` are the tool arguments the agent sent (the vault credential is
+   * decrypted after authorization, so it is never here); `target` is the resolved request that was
+   * (or would be) dispatched, never its Authorization header. Size-capped to bound the log.
+   */
+  attempt?: {
+    args?: Record<string, unknown>;
+    target?: { method: string; url: string };
+    /** True when `args` was dropped because it exceeded the audit size cap. */
+    truncated?: boolean;
+  };
 }

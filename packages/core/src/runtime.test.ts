@@ -148,6 +148,65 @@ describe("handleToolCall — the runtime spine", () => {
     expect(hits).toBe(0);
   });
 
+  it("records what the agent TRIED on a revoked call — and never the token", async () => {
+    const s = await scenario();
+    const audit = createInMemoryAuditSink();
+    const attemptedArgs = { title: "hello from my agent", body: "please fix this" };
+    const result = await handleToolCall({
+      presentation: await s.present(),
+      tool: "gh",
+      args: attemptedArgs,
+      audience: AUDIENCE,
+      resolver: s.resolver,
+      trustedIssuers: [s.orgDid],
+      nonceStore: s.nonceStore,
+      policy: s.policy,
+      auditSink: audit,
+      isRevoked: async () => true, // killed
+      registry: s.registry,
+      vault: s.vault,
+    });
+
+    expect(result.decision).toBe("deny");
+    expect(result.reason).toBe("verify:revoked");
+    // The audit shows exactly what was blocked — the message the agent tried to send.
+    const denied = audit.events.find((e) => e.decision === "deny");
+    expect(denied?.attempt?.args).toEqual(attemptedArgs);
+    // Vera's invariant: capturing more must never capture the credential. It is decrypted after
+    // authorization, so a denied call has no token — and it appears nowhere in the log.
+    expect(hits).toBe(0);
+    expect(JSON.stringify(audit.events)).not.toContain(SECRET);
+  });
+
+  it("records the resolved TARGET actually dispatched on an allowed call — never the token", async () => {
+    const s = await scenario();
+    const audit = createInMemoryAuditSink();
+    const result = await handleToolCall({
+      presentation: await s.present(),
+      tool: "gh",
+      audience: AUDIENCE,
+      resolver: s.resolver,
+      trustedIssuers: [s.orgDid],
+      nonceStore: s.nonceStore,
+      policy: s.policy,
+      auditSink: audit,
+      isRevoked: neverRevoked,
+      registry: s.registry,
+      vault: s.vault,
+    });
+
+    expect(result.ok).toBe(true);
+    // The executed outcome names the exact request the runtime sent downstream.
+    const executed = audit.events.find((e) => e.reason.startsWith("executed:"));
+    expect(executed?.attempt?.target).toEqual({
+      method: "GET",
+      url: `http://127.0.0.1:${port}/echo`,
+    });
+    // The real bearer token went to the downstream, but never into the audit.
+    expect(lastAuth).toBe(`Bearer ${SECRET}`);
+    expect(JSON.stringify(audit.events)).not.toContain(SECRET);
+  });
+
   it("denies a tool the capability does not grant, without dispatching", async () => {
     const s = await scenario();
     const result = await handleToolCall({

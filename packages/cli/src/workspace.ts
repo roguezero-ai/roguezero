@@ -16,7 +16,7 @@
  * (nothing silently loses access) but means `revoke` is the tool for retiring the old one.
  */
 
-import { readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import {
   CONFIG_VERSION,
@@ -63,6 +63,9 @@ export async function initCommand(opts: {
   controllerName?: string;
 }): Promise<InitResult> {
   const dir = resolve(opts.dir);
+  // Create the workspace directory if it doesn't exist — `roguezero init myruntime` is the first
+  // command a new user runs, and it must not require them to `mkdir` first.
+  await mkdir(dir, { recursive: true });
   const controllerPath = join(dir, opts.controllerName ?? "controller.key.json");
   const configPath = join(dir, CONFIG_FILENAME);
   const policyPath = join(dir, "policy.json");
@@ -70,6 +73,15 @@ export async function initCommand(opts: {
 
   const controller = createKeystore();
   await saveKeystore(controllerPath, controller);
+
+  // A workspace holds secrets (the controller key, the sealed vault, its passphrase, agent bundles
+  // that carry an agent's private key). If a user runs `init`/`quickstart` inside a git repo, none of
+  // these must be committable. Write a .gitignore that excludes them by default.
+  await writeFile(
+    join(dir, ".gitignore"),
+    ["controller.key.json", "vault.json", "vault.pass", "*.rz.json", "audit.jsonl", ""].join("\n"),
+    "utf8",
+  );
 
   await writeFile(
     configPath,

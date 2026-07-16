@@ -28,7 +28,46 @@ export const auditEventSchema = z.object({
     nonce: z.string().optional(),
     presentation: z.string().optional(),
   }),
+  attempt: z
+    .object({
+      args: z.record(z.string(), z.unknown()).optional(),
+      target: z.object({ method: z.string(), url: z.string() }).optional(),
+      truncated: z.boolean().optional(),
+    })
+    .optional(),
 });
+
+/**
+ * Largest serialized `attempt.args` we keep. A denied/attacking agent controls the arguments, so
+ * an unbounded copy would let it bloat the log; past the cap we drop the args and flag `truncated`.
+ */
+export const MAX_ATTEMPT_ARGS_BYTES = 4096;
+
+/**
+ * Build the `attempt` record from agent-supplied inputs — never the credential (decrypted later) nor
+ * an Authorization header (the caller passes only method+url). Over-cap args are dropped, not stored.
+ */
+export function summarizeAttempt(input: {
+  args?: Record<string, unknown>;
+  target?: { method: string; url: string };
+}): AuditEvent["attempt"] | undefined {
+  const attempt: NonNullable<AuditEvent["attempt"]> = {};
+  if (input.target) attempt.target = { method: input.target.method, url: input.target.url };
+  if (input.args && Object.keys(input.args).length > 0) {
+    let serialized = "";
+    try {
+      serialized = JSON.stringify(input.args);
+    } catch {
+      serialized = "";
+    }
+    if (serialized && Buffer.byteLength(serialized, "utf8") <= MAX_ATTEMPT_ARGS_BYTES) {
+      attempt.args = input.args;
+    } else {
+      attempt.truncated = true;
+    }
+  }
+  return attempt.args || attempt.target || attempt.truncated ? attempt : undefined;
+}
 
 /** A fresh correlation id linking the challenge, the call, and the decision. */
 export function newCorrelationId(): string {
@@ -42,6 +81,8 @@ export interface AuditEventInput {
   decision: Decision;
   reason: string;
   evidence?: AuditEvent["evidence"];
+  /** What the agent tried (args/target) — pass through `summarizeAttempt` for the size cap. */
+  attempt?: AuditEvent["attempt"];
   correlationId?: string;
   /** Override timestamp (ISO 8601); defaults to now. */
   ts?: string;
@@ -58,6 +99,7 @@ export function buildAuditEvent(input: AuditEventInput): AuditEvent {
     decision: input.decision,
     reason: input.reason,
     evidence: input.evidence ?? {},
+    attempt: input.attempt,
   });
 }
 

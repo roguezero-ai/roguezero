@@ -6,6 +6,51 @@ recorded here. The three packages are versioned together. Format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (pre-1.0: minor versions may carry
 breaking changes, called out below).
 
+## [0.4.1] — 2026-07-15
+
+**One-command setup, and an audit that shows what was blocked.** Additive over 0.4.0 — shaped by
+dogfooding the published release as a first-time user: the loop worked end to end, but setup was the
+wall. This release makes getting started a single command, and makes a denied call legible.
+
+### Added
+
+- **`roguezero quickstart`** (`@roguezero/cli`) — one interactive command from nothing to a working,
+  protected tool: it scaffolds the runtime, **generates and saves the vault passphrase (you never
+  type one)**, stores your tool credential encrypted, onboards the agent, and writes your Claude
+  Desktop config. Then you restart Claude. It defaults everything a first-time user shouldn't need to
+  know (audience, tool scopes, secret piping); `--print` emits the config instead of writing it.
+- **`roguezero mcp-config`** (`@roguezero/cli`) — generate a correct Claude Desktop MCP entry for
+  *this* machine (absolute `node` + bin paths, so it works under nvm's minimal launch PATH) and
+  `--write` it in — preserving existing servers and backing up the previous config.
+- **Audit records what the agent *attempted*** (`@roguezero/core`) — each event may carry
+  `attempt.args` (the tool arguments the agent sent) and `attempt.target` (the resolved method+URL on
+  the executed path), so a denied or revoked call shows *what was blocked*, not merely that it was.
+  `roguezero inspect --audit` renders it. Agent-supplied only — the vault credential is decrypted
+  *after* authorization (decrypt-last), so it never appears — and size-capped so a hostile agent
+  can't bloat the log.
+
+### Changed
+
+- **`@modelcontextprotocol/sdk` is now a regular dependency of `@roguezero/cli`** (previously an
+  optional peer) — so `npm i -g @roguezero/cli` installs everything needed to plug into an MCP client
+  like Claude Desktop, with no separate step.
+- **`runtime init` writes a workspace `.gitignore`** — excluding the controller key, the sealed
+  vault, the saved passphrase, and agent bundles, so scaffolding inside a git repo can't commit a
+  secret.
+
+### Fixed
+
+- **`runtime init <dir>` no longer fails when the directory doesn't exist** — it creates it.
+- **Actionable error when `@modelcontextprotocol/sdk` is missing** instead of a raw
+  module-not-found (now rare, since it ships as a dependency).
+- **`--help` leads with the runtime / quickstart flow** — the path a new user actually takes.
+
+### Security
+
+- The audit `attempt` capture is bounded and credential-safe (see Added); documented in
+  `docs/SECURITY.md`. Because it may contain agent-chosen argument values, operators should treat the
+  audit log as sensitive.
+
 ## [0.4.0] — 2026-07-12
 
 **Popular integrations, real APIs, and a hardened challenge endpoint.** Additive over 0.3.0 — from an

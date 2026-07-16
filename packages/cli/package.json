@@ -1,6 +1,6 @@
 {
   "name": "@roguezero/cli",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "RogueZero developer CLI: create identities, issue/verify credentials, revoke, and inspect audit logs.",
   "license": "Apache-2.0",
   "type": "module",
@@ -45,17 +45,7 @@
   },
   "dependencies": {
     "zod": "^3.24.1",
-    "@roguezero/core": "workspace:*"
-  },
-  "peerDependencies": {
-    "@modelcontextprotocol/sdk": ">=1.29.0"
-  },
-  "peerDependenciesMeta": {
-    "@modelcontextprotocol/sdk": {
-      "optional": true
-    }
-  },
-  "devDependencies": {
+    "@roguezero/core": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.29.0"
   }
 }

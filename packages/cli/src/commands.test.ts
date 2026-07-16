@@ -170,4 +170,28 @@ describe("inspect", () => {
     expect(out).toContain("DENY  delete_report");
     expect(out).toContain("reason=policy:default-deny");
   });
+
+  it("shows what the agent attempted, so a denied call reads as 'blocked from doing X'", async () => {
+    const auditPath = await tmp("audit.jsonl");
+    const event = {
+      ts: "2026-07-07T10:00:00Z",
+      correlationId: "c1",
+      actor: "did:key:zAgent",
+      subject: "did:key:zCtl",
+      tool: "github_create_issue",
+      decision: "deny",
+      reason: "verify:revoked",
+      evidence: {},
+      attempt: {
+        args: { owner: "acme", repo: "web", title: "hello from my agent" },
+        target: { method: "POST", url: "https://api.github.com/repos/acme/web/issues" },
+      },
+    };
+    await writeFile(auditPath, `${JSON.stringify(event)}\n`, "utf8");
+    const out = await inspectAuditCommand({ auditPath });
+    expect(out).toContain("DENY  github_create_issue");
+    expect(out).toContain("attempted:");
+    expect(out).toContain("POST https://api.github.com/repos/acme/web/issues");
+    expect(out).toContain("hello from my agent");
+  });
 });
