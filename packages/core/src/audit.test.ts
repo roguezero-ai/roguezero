@@ -6,7 +6,9 @@ import {
   buildAuditEvent,
   createInMemoryAuditSink,
   createJsonlAuditSink,
+  MAX_ATTEMPT_ARGS_BYTES,
   newCorrelationId,
+  summarizeAttempt,
 } from "./audit.js";
 import type { AuditEvent } from "./types.js";
 
@@ -47,6 +49,44 @@ describe("buildAuditEvent", () => {
     expect(() =>
       buildAuditEvent({ ...baseInput, decision: "maybe" as unknown as "allow" }),
     ).toThrow();
+  });
+});
+
+describe("summarizeAttempt (what the agent tried, bounded)", () => {
+  it("keeps small args and the resolved target", () => {
+    const attempt = summarizeAttempt({
+      args: { title: "hi", body: "world" },
+      target: { method: "POST", url: "https://api.github.com/repos/o/r/issues" },
+    });
+    expect(attempt?.args).toEqual({ title: "hi", body: "world" });
+    expect(attempt?.target).toEqual({
+      method: "POST",
+      url: "https://api.github.com/repos/o/r/issues",
+    });
+    expect(attempt?.truncated).toBeUndefined();
+  });
+
+  it("drops over-cap args and flags truncated, so a huge arg can't bloat the log", () => {
+    const attempt = summarizeAttempt({ args: { blob: "x".repeat(MAX_ATTEMPT_ARGS_BYTES + 1) } });
+    expect(attempt?.args).toBeUndefined();
+    expect(attempt?.truncated).toBe(true);
+  });
+
+  it("returns undefined when there is nothing to record (no args, no target)", () => {
+    expect(summarizeAttempt({ args: {} })).toBeUndefined();
+    expect(summarizeAttempt({})).toBeUndefined();
+  });
+
+  it("survives the schema round-trip inside a built event", () => {
+    const event = buildAuditEvent({
+      ...baseInput,
+      attempt: summarizeAttempt({
+        args: { q: "find" },
+        target: { method: "GET", url: "https://x/y" },
+      }),
+    });
+    expect(event.attempt?.args).toEqual({ q: "find" });
+    expect(event.attempt?.target?.method).toBe("GET");
   });
 });
 

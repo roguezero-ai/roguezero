@@ -15,7 +15,7 @@
  */
 
 import { authorizeToolCall, type AuthorizeToolCallOptions } from "./authorize.js";
-import { buildAuditEvent } from "./audit.js";
+import { buildAuditEvent, summarizeAttempt } from "./audit.js";
 import { dispatchToolCall, type DispatchResult } from "./proxy.js";
 import { getCredential, type Vault } from "./vault.js";
 import { resolveRequest, type RequestPlan, type ToolRegistry } from "./registry.js";
@@ -63,6 +63,9 @@ export async function handleToolCall(
   const req = auth.request;
   const correlationId = auth.correlationId;
 
+  // Resolved once step 5 succeeds, so outcome events can record the target actually dispatched.
+  let plan: RequestPlan | undefined;
+
   // Supplementary, best-effort audit of the execution outcome (the *decision* was already audited).
   const auditOutcome = async (decision: Decision, reason: string): Promise<void> => {
     try {
@@ -74,6 +77,10 @@ export async function handleToolCall(
           decision,
           reason,
           evidence: req.evidence,
+          attempt: summarizeAttempt({
+            args,
+            target: plan ? { method: plan.method, url: plan.url } : undefined,
+          }),
           correlationId,
         }),
       );
@@ -83,7 +90,6 @@ export async function handleToolCall(
   };
 
   // 5. Resolve the pinned request from the agent's args (SSRF-contained). Bad args → deny, no decrypt.
-  let plan: RequestPlan;
   try {
     plan = resolveRequest(registry, tool, args);
   } catch (err) {

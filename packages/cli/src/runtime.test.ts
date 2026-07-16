@@ -28,6 +28,23 @@ afterEach(async () => {
 });
 
 describe("runtime CLI — self-host flow", () => {
+  it("creates the workspace directory when it doesn't exist (`init <newdir>`, no mkdir first)", async () => {
+    // Dogfood regression: a stranger runs `roguezero runtime init myruntime` with no dir yet.
+    // Tests here previously always mkdtemp'd the dir first, so this failed only in the real world.
+    const root = await mkdtemp(join(tmpdir(), "rz-init-"));
+    dir = root; // afterEach cleans the whole tree
+    const target = join(root, "does", "not", "exist", "yet");
+    const ws = await runtimeInitCommand({
+      dir: target,
+      audience: AUDIENCE,
+      passphrase: PASS,
+      argonParams: FAST,
+    });
+    expect(ws.controllerDid).toMatch(/^did:key:/);
+    const { readFile } = await import("node:fs/promises");
+    await expect(readFile(ws.registryPath, "utf8")).resolves.toContain("tools");
+  });
+
   it("init → tool add → secret set → onboard → serve → agent calls it, never holding the token", async () => {
     // The downstream tool.
     let downstreamAuth: string | undefined;

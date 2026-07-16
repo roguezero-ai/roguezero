@@ -29,7 +29,7 @@ const PRESENTATION_ARG = "presentation";
 
 export function createRuntimeMcpServer(options: RuntimeServerOptions): Server {
   const server = new Server(
-    { name: "roguezero-runtime", version: "0.4.0" },
+    { name: "roguezero-runtime", version: "0.4.1" },
     { capabilities: { tools: {} } },
   );
 

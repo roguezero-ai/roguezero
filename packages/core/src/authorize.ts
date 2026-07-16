@@ -18,6 +18,7 @@ import type { Resolvable } from "did-resolver";
 import {
   buildAuditEvent,
   newCorrelationId,
+  summarizeAttempt,
   type AuditEventInput,
   type AuditSink,
 } from "./audit.js";
@@ -45,6 +46,11 @@ export interface AuthorizeToolCallOptions {
    * closed; a guard without it has no kill switch. Pass `neverRevoked` to say so on purpose.
    */
   isRevoked: RevocationChecker;
+  /**
+   * The agent-supplied tool arguments — recorded in the audit as `attempt.args` so a denied call
+   * shows what was blocked. Optional and agent-controlled; never the credential.
+   */
+  args?: Record<string, unknown>;
   /** Correlation id linking challenge → call → decision; generated if omitted. */
   correlationId?: string;
 }
@@ -69,12 +75,13 @@ export async function authorizeToolCall(
    * result on success, or an `audit-write-failed` deny — so an unauditable call never
    * proceeds and never throws an unhandled error at the transport.
    */
+  const attempt = summarizeAttempt({ args: options.args });
   const auditThen = async (
     input: AuditEventInput,
     intended: AuthorizeToolCallResult,
   ): Promise<AuthorizeToolCallResult> => {
     try {
-      await auditSink.write(buildAuditEvent(input));
+      await auditSink.write(buildAuditEvent({ ...input, attempt }));
       return intended;
     } catch {
       return { decision: "deny", reason: "audit-write-failed", correlationId };

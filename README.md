@@ -21,22 +21,37 @@ agent, what may it do, can I kill it, and can I prove what happened.*
 the request spine), the HTTP and MCP entrypoints, and the self-host CLI all work and are exercised by
 CI-enforced end-to-end demos. See [`CONTRIBUTING.md`](CONTRIBUTING.md) to build and run it.
 
-## Quickstart — self-host a tool runtime
+## Quickstart — one command, then restart Claude
 
-Give an agent access to GitHub without ever handing it your token:
+Give Claude scoped access to a tool without ever handing it your token. One interactive command
+creates the runtime, stores your credential encrypted, onboards the agent, and writes your Claude
+Desktop config:
+
+```bash
+npx @roguezero/cli quickstart
+```
+
+It asks which tool (GitHub, Slack, Stripe, …), opens the page to create the credential, and takes the
+value. You **never pick a vault passphrase** — it generates and saves one for you. When it finishes,
+fully quit Claude (⌘Q), reopen, and ask it to use the tool. That's it.
+
+<details>
+<summary>Prefer the explicit steps? Here's what quickstart runs for you.</summary>
 
 ```bash
 export RZ_VAULT_PASSPHRASE="a long passphrase"
 
 npx @roguezero/cli runtime init ./runtime --audience runtime://acme
-npx @roguezero/cli runtime tool add github --url https://api.github.com/user --cred-ref gh
-echo "$GITHUB_TOKEN" | npx @roguezero/cli runtime secret set --tool github --ref gh
-npx @roguezero/cli onboard my-agent --tool github=gh:read   # grant one agent the tool
-npx @roguezero/cli runtime serve                            # http://127.0.0.1:8787
+echo "$GITHUB_TOKEN" | npx @roguezero/cli add github   # a curated, least-privilege tool def
+npx @roguezero/cli onboard my-agent --tool github_create_issue=call
+npx @roguezero/cli mcp-config --agent my-agent --write  # wire Claude Desktop for this machine
+# …or `runtime serve` to expose the tools over HTTP instead
 ```
 
+</details>
+
 The token is sealed in an **encrypted vault** (a passphrase-derived key — nothing secret at rest).
-The agent authenticates and calls the tool; the runtime injects the token server-side, calls GitHub,
+The agent authenticates and calls the tool; the runtime injects the token server-side, calls the API,
 and returns the result. The agent only ever holds *its own identity* — never your API key. Revoke it:
 
 ```bash
@@ -120,7 +135,7 @@ stops being true, the build goes red.
 |---|---|
 | `packages/core` | The runtime spine, credential vault + key providers, tool registry, injection proxy — plus DID/VC identity, policy, revocation, audit |
 | `packages/middleware` | MCP server wrapper + HTTP middleware over the identity spine |
-| `packages/cli` | `runtime init/tool/secret/serve/mcp` · `init/onboard/connect/renew/revoke` · lower-level identity ops |
+| `packages/cli` | `quickstart` (one-command setup) · `runtime init/tool/secret/serve/mcp` · `add/onboard/mcp-config/connect/renew/revoke` · lower-level identity ops |
 | `examples/protected-tool` | CI-enforced end-to-end demos (runtime over HTTP + MCP, unattended lifecycle, plug-and-play proxy) |
 | `docs/` | [Concepts](docs/CONCEPTS.md) · [Architecture](docs/ARCHITECTURE.md) · [Security](docs/SECURITY.md) · [Threat model](docs/THREAT-MODEL.md) |
 

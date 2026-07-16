@@ -4,7 +4,7 @@
  * functions in commands.ts. Errors are printed clearly and set a non-zero exit code.
  */
 
-import { stat } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import {
@@ -33,14 +33,27 @@ import {
   renewCommand,
 } from "./workspace.js";
 
-const HELP = `roguezero — verifiable agent identity & authorization
+const HELP = `roguezero — give an AI agent scoped access to your tools, without the credentials
 
-Getting started (no DIDs typed by hand):
-  roguezero init --audience <aud>              scaffold config + controller + default-deny policy
-  roguezero onboard <name> --tool <name=scope> create an agent, issue its credentials, allow it
-  roguezero connect --agent <name> -- <cmd>    run an agent's MCP client through RogueZero
-  roguezero renew --agent <name>               rotate its credentials; retires the old ones
-  roguezero revoke --agent <name>              kill it; the next call is denied
+Fastest start — one command, then restart Claude:
+  roguezero quickstart                             wire an agent to a tool, end to end, interactively
+      Creates a workspace, generates & saves the vault passphrase, stores your tool
+      credential encrypted, onboards the agent, and writes the Claude Desktop config.
+
+The runtime (the steps quickstart runs for you):
+  roguezero runtime init <dir> --audience <aud>   scaffold a self-hosted runtime workspace
+  roguezero add <name>                            add a popular tool (github, slack, stripe, …)
+  roguezero onboard <name> --tool <name=scope>    create an agent, issue its credentials, allow it
+  roguezero runtime serve [--port <p>]            serve the tools; the agent never holds a credential
+  roguezero revoke --agent <name>                 kill it; the next call is denied
+
+Plug an unmodified MCP agent into the runtime (needs @modelcontextprotocol/sdk):
+  roguezero mcp-config --agent <name> --write     write a correct Claude Desktop config for THIS machine
+  roguezero connect --agent <name> -- roguezero runtime mcp    (what mcp-config wires up for you)
+
+Identity / credential primitives (no DIDs typed by hand):
+  roguezero init --audience <aud>              a bare identity workspace (no runtime)
+  roguezero renew --agent <name>               rotate an agent's credentials; retires the old ones
 
 Unattended fleets (run where the controller key lives — never on the agent):
   roguezero renew --all [--dir <d>] [--within <sec>]
@@ -95,6 +108,18 @@ async function exists(path: string): Promise<boolean> {
   }
 }
 
+/**
+ * The vault passphrase: `RZ_VAULT_PASSPHRASE` first, else the saved `vault.pass` beside the workspace
+ * (quickstart writes it) — so "you never type this" holds for the next command, not just the first.
+ * A local-dev convenience: the key sits beside the ciphertext; shared/prod uses a real secret manager.
+ */
+async function resolvePassphrase(configPath: string): Promise<string | undefined> {
+  if (process.env.RZ_VAULT_PASSPHRASE) return process.env.RZ_VAULT_PASSPHRASE;
+  const passPath = join(dirname(resolve(configPath)), "vault.pass");
+  if (await exists(passPath)) return (await readFile(passPath, "utf8")).trim() || undefined;
+  return undefined;
+}
+
 /** Read a secret from stdin (piped), so it never lands in argv / shell history. */
 async function readStdin(): Promise<string> {
   if (process.stdin.isTTY) return "";
@@ -107,6 +132,39 @@ async function run(argv: string[]): Promise<number> {
   const [command, ...rest] = argv;
 
   switch (command) {
+    case "quickstart": {
+      const { values, positionals } = parseArgs({
+        args: rest,
+        allowPositionals: true,
+        options: {
+          dir: { type: "string" },
+          audience: { type: "string" },
+          agent: { type: "string" },
+          integration: { type: "string" },
+          scope: { type: "string" },
+          print: { type: "boolean" }, // emit the config instead of writing it
+        },
+      });
+      if (!process.stdin.isTTY && !process.env.RZ_SECRET) {
+        process.stderr.write(
+          "quickstart is interactive; run it in a terminal, or set RZ_SECRET and pass --integration.\n",
+        );
+        return 1;
+      }
+      const { runQuickstart, createTerminalIo } = await import("./quickstart.js");
+      await runQuickstart({
+        io: createTerminalIo(),
+        dir: values.dir,
+        audience: values.audience,
+        agent: values.agent,
+        integrationId: values.integration ?? positionals[0],
+        scope: values.scope,
+        secret: process.env.RZ_SECRET,
+        write: !values.print,
+      });
+      return 0;
+    }
+
     case "runtime": {
       const [sub, ...subRest] = rest;
       const passphrase = () =>
@@ -248,7 +306,10 @@ async function run(argv: string[]): Promise<number> {
         integration: name,
         secret: hasSecret ? secret : undefined,
         passphrase: hasSecret
-          ? req(process.env.RZ_VAULT_PASSPHRASE, "RZ_VAULT_PASSPHRASE (set it in the environment)")
+          ? req(
+              await resolvePassphrase(configPath),
+              "RZ_VAULT_PASSPHRASE (set it, or run `roguezero quickstart`)",
+            )
           : undefined,
       });
       process.stderr.write(
@@ -261,6 +322,58 @@ async function run(argv: string[]): Promise<number> {
           `  roguezero onboard <agent> --tool ${result.addedTools[0]}=call\n` +
           `  roguezero runtime serve\n`,
       );
+      return 0;
+    }
+
+    case "mcp-config": {
+      const { mcpConfigCommand } = await import("./mcp-config.js");
+      const { values } = parseArgs({
+        args: rest,
+        options: {
+          agent: { type: "string" },
+          config: { type: "string" },
+          name: { type: "string" },
+          write: { type: "boolean" },
+        },
+      });
+      const mcpConfigPath = resolve(values.config ?? CONFIG_FILENAME);
+      const result = await mcpConfigCommand({
+        agent: req(values.agent, "agent"),
+        configPath: mcpConfigPath,
+        serverName: values.name,
+        // Embed the passphrase from the env or the saved vault.pass; else emit a placeholder.
+        passphrase: await resolvePassphrase(mcpConfigPath),
+        write: values.write,
+        claudeConfigPath: process.env.RZ_CLAUDE_CONFIG,
+      });
+
+      for (const w of result.warnings) process.stderr.write(`  ⚠ ${w}\n`);
+
+      if (result.wrote) {
+        process.stderr.write(
+          `✓ added "${result.serverName}" to your Claude Desktop config\n` +
+            `  ${result.claudeConfigPath}\n` +
+            (result.backupPath ? `  (backed up the old one to ${result.backupPath})\n` : "") +
+            (result.passphraseEmbedded
+              ? `  Your RZ_VAULT_PASSPHRASE is embedded (plaintext — local dev only).\n`
+              : `  Edit that file and replace PUT_YOUR_RZ_VAULT_PASSPHRASE_HERE with your passphrase.\n`) +
+            `\nNext: fully quit Claude (⌘Q) and reopen. Settings → Developer should show it connected.\n`,
+        );
+      } else {
+        process.stdout.write(
+          `${JSON.stringify({ mcpServers: { [result.serverName]: result.entry } }, null, 2)}\n`,
+        );
+        process.stderr.write(
+          `\nPaste the block above into your Claude Desktop config:\n` +
+            `  ${result.claudeConfigPath}\n` +
+            `  (or Settings → Developer → Edit Config)\n` +
+            (result.passphraseEmbedded
+              ? ``
+              : `Then replace PUT_YOUR_RZ_VAULT_PASSPHRASE_HERE with your passphrase.\n`) +
+            `Tip: re-run with --write to do this automatically.\n` +
+            `Then fully quit Claude (⌘Q) and reopen.\n`,
+        );
+      }
       return 0;
     }
 
@@ -643,13 +756,20 @@ run(process.argv.slice(2))
     process.exitCode = code;
   })
   .catch((error: unknown) => {
+    const msg = error instanceof Error ? error.message : String(error);
     if (error instanceof VerificationError) {
       const e = explainDenial(error.reason);
       process.stderr.write(
         `verification failed: ${e.summary}\n  reason: ${error.reason}\n  fix:    ${e.fix}\n`,
       );
+    } else if (msg.includes("@modelcontextprotocol/sdk")) {
+      // The MCP transport (`connect`, `runtime mcp`) needs an optional peer dep — say so plainly.
+      process.stderr.write(
+        `error: the MCP transport needs the '@modelcontextprotocol/sdk' package (an optional peer).\n` +
+          `  fix:   npm i @modelcontextprotocol/sdk\n`,
+      );
     } else {
-      process.stderr.write(`error: ${error instanceof Error ? error.message : String(error)}\n`);
+      process.stderr.write(`error: ${msg}\n`);
     }
     process.exitCode = 1;
   });

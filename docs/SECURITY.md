@@ -31,6 +31,8 @@ This is security infrastructure: a crypto mistake here is worse than no product.
 
 Every deny carries a typed reason naming the failed check (T1–T11 map to distinct error types). This is both a security property (auditability) and the product's developer experience.
 
+**Audit records what the agent *attempted*** (`attempt.args` = the tool arguments the agent sent; `attempt.target` = the resolved method+URL on the executed path), so a denied call shows *what was blocked*, not merely that it was. Two invariants bound this: (1) it is **agent-supplied data only** — the vault credential is decrypted *after* authorization (decrypt-last), so it can never appear in `attempt`, and `target` never includes the `Authorization` header; (2) `attempt.args` is **size-capped** (a denied/attacking agent controls its arguments, so an unbounded copy would let it bloat the log — past the cap the args are dropped and `truncated` is flagged). Consequence for operators: the audit log may contain agent-chosen argument *values* (e.g., an issue title/body) — **treat the audit log as sensitive** and store it accordingly.
+
 ## Tool runtime (credential injection)
 
 The runtime extends the model above: it also **holds downstream tool credentials** and injects them

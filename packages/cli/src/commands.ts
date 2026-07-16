@@ -264,6 +264,11 @@ interface AuditLine {
   actor: string;
   reason: string;
   correlationId: string;
+  attempt?: {
+    args?: Record<string, unknown>;
+    target?: { method: string; url: string };
+    truncated?: boolean;
+  };
 }
 
 /** Pretty-print an append-only JSONL audit log, one decision per line. */
@@ -286,7 +291,15 @@ export async function inspectAuditCommand(opts: { auditPath: string }): Promise<
   return lines
     .map((line) => {
       const e = JSON.parse(line) as AuditLine;
-      return `${e.ts}  ${e.decision.toUpperCase().padEnd(5)} ${e.tool.padEnd(16)} actor=${e.actor} reason=${e.reason} cid=${e.correlationId}`;
+      const head = `${e.ts}  ${e.decision.toUpperCase().padEnd(5)} ${e.tool.padEnd(16)} actor=${e.actor} reason=${e.reason} cid=${e.correlationId}`;
+      // Show what the agent tried, so a denied call reads as "blocked from doing X", not just "denied".
+      const a = e.attempt;
+      if (!a) return head;
+      const detail: string[] = [];
+      if (a.target) detail.push(`${a.target.method} ${a.target.url}`);
+      if (a.args) detail.push(`args=${JSON.stringify(a.args)}`);
+      else if (a.truncated) detail.push("args=(omitted — exceeded audit size cap)");
+      return detail.length > 0 ? `${head}\n         ↳ attempted: ${detail.join("  ")}` : head;
     })
     .join("\n");
 }

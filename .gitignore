@@ -13,3 +13,6 @@ coverage/
 keys/
 # local research / intel scratch — never version-controlled (may hold competitive material)
 dashtel/
+
+# npm pack / pnpm pack output
+*.tgz
